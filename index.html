@@ -870,14 +870,20 @@ function parseNewick(str) {
       if (s[i] === ')') i++;
     }
     let label = '';
-    if (s[i] === "'") { // quoted label
+    if (s[i] === "'") { // quoted label; doubled '' is a literal apostrophe
       i++;
-      while (i < s.length && s[i] !== "'") label += s[i++];
-      i++; // closing quote
+      while (i < s.length) {
+        if (s[i] === "'") {
+          if (s[i + 1] === "'") { label += "'"; i += 2; continue; }
+          i++; break; // closing quote
+        }
+        label += s[i++];
+      }
+      n.name = label.trim();
     } else {
       while (i < s.length && !stops.includes(s[i])) label += s[i++];
+      n.name = label.trim().replace(/_/g, ' ').trim();
     }
-    n.name = label.trim().replace(/_/g, ' ').trim();
     if (s[i] === ':') {
       i++;
       let num = '';
@@ -1197,19 +1203,14 @@ function cleanNewick() {
 }
 
 function extractNewick(text) {
-  const lines = text.split('\n');
-  for (const line of lines) {
-    const t = line.trim();
-    if (t.startsWith('(') || t.includes('(')) {
-      const start = t.indexOf('(');
-      if (start > -1) return t.slice(start);
-    }
-  }
-  if (text.includes('(')) {
-    const start = text.indexOf('(');
-    return text.slice(start);
-  }
-  return null;
+  // Take everything from the first '(' through the terminal ';'. NCBI phylip
+  // output spans many lines, so we must NOT stop at the first line.
+  const start = text.indexOf('(');
+  if (start === -1) return null;
+  let sub = text.slice(start);
+  const semi = sub.lastIndexOf(';');
+  if (semi > -1) sub = sub.slice(0, semi + 1);
+  return sub;
 }
 
 function cleanNewickStr(s) {
@@ -1222,19 +1223,29 @@ function cleanNewickStr(s) {
 }
 
 function validateNewick(s) {
-  let depth = 0;
-  for (const c of s) {
+  // Count only structural parentheses — ignore any inside quoted labels.
+  let depth = 0, inQuote = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "'") {
+      if (inQuote && s[i + 1] === "'") { i++; continue; }
+      inQuote = !inQuote;
+      continue;
+    }
+    if (inQuote) continue;
     if (c === '(') depth++;
-    else if (c === ')') depth--;
-    if (depth < 0) return { ok: false, msg: 'Unmatched closing parenthesis' };
+    else if (c === ')') {
+      depth--;
+      if (depth < 0) return { ok: false, msg: 'Unmatched closing parenthesis' };
+    }
   }
   if (depth !== 0) return { ok: false, msg: `${depth} unclosed parentheses` };
-  if (!s.endsWith(';')) return { ok: false, msg: 'Missing terminal semicolon' };
+  if (!s.trim().endsWith(';')) return { ok: false, msg: 'Missing terminal semicolon' };
   return { ok: true, msg: 'Valid Newick' };
 }
 
 function showNewickStats(elId, newick, valid) {
-  const taxa = extractTaxa(newick);
+  const taxa = getLeaves(newick);
   const v = valid || validateNewick(newick);
   const depth = estimateDepth(newick);
   document.getElementById(elId).innerHTML = `
@@ -1266,9 +1277,16 @@ function extractTaxa(newick) {
 }
 
 function estimateDepth(newick) {
-  let max = 0, cur = 0;
-  for (const c of newick) {
-    if (c === '(') { cur++; max = Math.max(max, cur); }
+  let max = 0, cur = 0, inQuote = false;
+  for (let i = 0; i < newick.length; i++) {
+    const c = newick[i];
+    if (c === "'") {
+      if (inQuote && newick[i + 1] === "'") { i++; continue; }
+      inQuote = !inQuote;
+      continue;
+    }
+    if (inQuote) continue;
+    if (c === '(') { cur++; if (cur > max) max = cur; }
     else if (c === ')') cur--;
   }
   return max;

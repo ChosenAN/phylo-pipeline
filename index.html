@@ -749,6 +749,20 @@
           <div id="rfDetails" style="font-size:13px; color:var(--text2); line-height:1.7;"></div>
         </div>
 
+        <div class="card" id="analyticsCard" style="margin-top:16px; display:none;">
+          <label>Tree analytics (per tree)</label>
+          <p style="font-size:12px; color:var(--text2); margin-bottom:10px; line-height:1.5;">
+            Structural descriptors for each tree. "First branch" = how the root splits its descendants into top-level clades; the split balance compares the two largest (1.0 = even, →0 = one dominant clade).
+          </p>
+          <div class="table-wrap" style="max-height:none;">
+            <table class="species-table" id="analyticsTable">
+              <thead><tr><th>Metric</th><th>🧬 Domain</th><th>🌿 Taxonomy</th></tr></thead>
+              <tbody id="analyticsBody"></tbody>
+            </table>
+          </div>
+          <div id="firstBranchViz" style="margin-top:14px;"></div>
+        </div>
+
         <div class="card" id="nameMapCard" style="margin-top:16px; display:none;">
           <label>Name mapping (fuzzy-matched taxa across trees)</label>
           <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
@@ -983,6 +997,42 @@ function robinsonFoulds(t1, t2) {
   return { rf: diff, norm, n, a: A.size, b: B.size, maxRf: denom };
 }
 
+/* ─────────────────────── Tree analytics ─────────────────────────── */
+function countLeaves(n) {
+  return n.children.length === 0 ? 1 : n.children.reduce((s, c) => s + countLeaves(c), 0);
+}
+
+// Descriptive statistics for a single tree, for research-oriented comparison.
+function treeStats(root) {
+  if (!root) return null;
+  let leaves = 0, internal = 0, total = 0, sumLeafDepth = 0,
+      maxDepth = 0, cherries = 0, multifurc = 0, polytomyMax = 0;
+  (function walk(n, d) {
+    total++;
+    if (d > maxDepth) maxDepth = d;
+    if (n.children.length === 0) { leaves++; sumLeafDepth += d; return; }
+    internal++;
+    if (n.children.length > 2) { multifurc++; polytomyMax = Math.max(polytomyMax, n.children.length); }
+    const leafKids = n.children.filter(c => c.children.length === 0).length;
+    if (n.children.length === 2 && leafKids === 2) cherries++;
+    n.children.forEach(c => walk(c, d + 1));
+  })(root, 0);
+
+  // "First branch" = how the root splits its descendants into clades.
+  const childSizes = root.children.map(countLeaves).sort((a, b) => b - a);
+  const first = childSizes[0] || 0, second = childSizes[1] || 0;
+  const splitBalance = first + second > 0 ? second / first : 0; // 1 = even, →0 = lopsided
+
+  return {
+    leaves, internal, ancestors: internal, edges: Math.max(0, total - 1), total,
+    maxDepth, meanLeafDepth: leaves ? sumLeafDepth / leaves : 0,
+    cherries, multifurc, polytomyMax,
+    rootDegree: root.children.length, childSizes, first, second, splitBalance,
+    // Fraction of the theoretical max internal nodes for a fully-resolved rooted tree.
+    resolution: leaves > 2 ? internal / (leaves - 1) : 1
+  };
+}
+
 /* ────────────────── Name normalization & matching ───────────────── */
 function normName(s) {
   return s.toLowerCase()
@@ -1011,15 +1061,43 @@ function levenshtein(a, b) {
   return prev[n];
 }
 
+// Strain designators are the most reliable cross-database signal: PCC 7942,
+// FACHB-805, ATCC 33912, NIES-2135, WH 8501, CCMP1375, etc. Collapse to PREFIX+NUMBER.
+function strainCodes(s) {
+  const codes = new Set();
+  const up = s.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
+  const re = /\b([A-Z]{2,6})[ \-_]?(\d{2,7})\b/g;
+  let m;
+  while ((m = re.exec(up)) !== null) codes.add(m[1] + m[2]);
+  return codes;
+}
+
+const EPITHET_STOP = new Set(['sp', 'cf', 'aff', 'bacterium', 'cyanobacterium', 'endosymbiont', 'subsp', 'substr', 'str']);
+
 function nameSimilarity(a, b) {
   const na = normName(a), nb = normName(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-  let sim = 1 - levenshtein(na, nb) / Math.max(na.length, nb.length);
-  // Boost when genus + species (first two tokens) agree.
   const ta = na.split(' '), tb = nb.split(' ');
-  if (ta[0] && ta[0] === tb[0] && ta[1] && ta[1] === tb[1]) sim = Math.max(sim, 0.85);
-  return sim;
+  const genusMatch = ta[0] && ta[0] === tb[0];
+  const strSim = 1 - levenshtein(na, nb) / Math.max(na.length, nb.length);
+
+  // Shared strain code + same genus is a near-certain match.
+  const ca = strainCodes(a), cb = strainCodes(b);
+  let shareCode = false;
+  ca.forEach(x => { if (cb.has(x)) shareCode = true; });
+  if (shareCode && genusMatch) return Math.max(0.95, strSim);
+  if (shareCode) return Math.max(0.8, strSim);
+  // Both name strains, none shared ⇒ different strains of (maybe) the same
+  // species. Cap below threshold so near-identical names that differ only by
+  // strain number (PCC 7107 vs PCC 7524) are NOT treated as the same taxon.
+  if (ca.size && cb.size && !shareCode) return Math.min(strSim, 0.5);
+
+  // Same genus + the same *real* species epithet (not "sp."/"cf."/etc.).
+  const sp = ta[1];
+  if (genusMatch && sp && sp === tb[1] && !EPITHET_STOP.has(sp)) return Math.max(0.85, strSim);
+
+  return strSim;
 }
 
 // Greedy best-match pairing of two leftover name lists above a threshold.
@@ -1086,6 +1164,53 @@ function renderCladogram(newick, containerId) {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderAnalytics(dRoot, tRoot) {
+  const card = document.getElementById('analyticsCard');
+  const ds = treeStats(dRoot), ts = treeStats(tRoot);
+  if (!ds && !ts) { card.style.display = 'none'; return null; }
+  const fmt = (v, d) => v == null ? '—' : (typeof v === 'number'
+    ? (Number.isInteger(v) ? v : v.toFixed(d || 0)) : v);
+  const g = (st, k) => st ? st[k] : null;
+  const rows = [
+    ['Species (leaves)', g(ds, 'leaves'), g(ts, 'leaves'), 0],
+    ['Branchings / ancestors (internal nodes)', g(ds, 'internal'), g(ts, 'internal'), 0],
+    ['Edges', g(ds, 'edges'), g(ts, 'edges'), 0],
+    ['Max depth', g(ds, 'maxDepth'), g(ts, 'maxDepth'), 0],
+    ['Mean leaf depth', g(ds, 'meanLeafDepth'), g(ts, 'meanLeafDepth'), 2],
+    ['Root degree (first-branch fan-out)', g(ds, 'rootDegree'), g(ts, 'rootDegree'), 0],
+    ['First-branch clade sizes', ds ? ds.childSizes.join(', ') : null, ts ? ts.childSizes.join(', ') : null, 0],
+    ['First vs second clade', ds ? `${ds.first} vs ${ds.second}` : null, ts ? `${ts.first} vs ${ts.second}` : null, 0],
+    ['Split balance (2nd ÷ 1st)', g(ds, 'splitBalance'), g(ts, 'splitBalance'), 2],
+    ['Cherries (leaf pairs)', g(ds, 'cherries'), g(ts, 'cherries'), 0],
+    ['Polytomies (multifurcations)', g(ds, 'multifurc'), g(ts, 'multifurc'), 0],
+    ['Largest polytomy', g(ds, 'polytomyMax'), g(ts, 'polytomyMax'), 0],
+    ['Resolution (internal ÷ (n−1))', g(ds, 'resolution'), g(ts, 'resolution'), 2]
+  ];
+  document.getElementById('analyticsBody').innerHTML = rows.map(r =>
+    `<tr><td>${r[0]}</td><td>${fmt(r[1], r[3])}</td><td>${fmt(r[2], r[3])}</td></tr>`).join('');
+  document.getElementById('firstBranchViz').innerHTML =
+    firstBranchBars('🧬 Domain — first-branch distribution', ds) +
+    firstBranchBars('🌿 Taxonomy — first-branch distribution', ts);
+  card.style.display = 'block';
+  return { ds, ts };
+}
+
+function firstBranchBars(title, st) {
+  if (!st || !st.childSizes.length) return '';
+  const total = st.leaves || 1;
+  const bars = st.childSizes.map((sz, i) => {
+    const pct = Math.round(100 * sz / total);
+    return `<div style="display:flex; align-items:center; gap:8px; margin:2px 0; font-size:11px;">
+      <span style="width:84px; color:var(--text2); font-family:var(--mono);">clade ${i + 1}</span>
+      <span style="flex:1; background:var(--surface2); border-radius:4px; overflow:hidden; height:14px;">
+        <span style="display:block; height:100%; width:${pct}%; background:var(--accent);"></span>
+      </span>
+      <span style="width:74px; text-align:right; font-family:var(--mono); color:var(--text2);">${sz} (${pct}%)</span>
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:10px;"><div style="font-size:12px; font-weight:600; margin-bottom:4px;">${title}</div>${bars}</div>`;
 }
 
 function loadExample() {
@@ -1385,7 +1510,7 @@ function compareTrees() {
   let tOnly = [...tTaxa].filter(x => !dTaxa.has(x));
 
   // Fuzzy-match the leftovers (strain suffixes, bracket/synonym formatting).
-  const fuzzy = fuzzyMatch(dOnly, tOnly, 0.6);
+  const fuzzy = fuzzyMatch(dOnly, tOnly, 0.66);
   const renameMap = new Map(fuzzy.map(p => [p.b, p.a])); // taxonomy name → domain name
   const effShared = shared.length + fuzzy.length;
 
@@ -1440,10 +1565,35 @@ function compareTrees() {
 
   renderCladogram(d, 'domainViz');
   renderCladogram(t, 'taxonomyViz');
+  const stats = renderAnalytics(tDom, tTax);
 
-  lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct };
+  lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct, stats };
   document.getElementById('compareOutput').style.display = 'block';
   markDone(3);
+}
+
+function statsReportLines(stats) {
+  if (!stats || (!stats.ds && !stats.ts)) return ['(run a comparison to populate analytics)', ''];
+  const round = v => (v == null ? '—' : (typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v));
+  const line = (label, k, fn) => {
+    const dv = stats.ds ? (fn ? fn(stats.ds) : stats.ds[k]) : null;
+    const tv = stats.ts ? (fn ? fn(stats.ts) : stats.ts[k]) : null;
+    return `${label}: domain=${round(dv)}  taxonomy=${round(tv)}`;
+  };
+  return [
+    line('Species (leaves)', 'leaves'),
+    line('Branchings/ancestors', 'internal'),
+    line('Max depth', 'maxDepth'),
+    line('Mean leaf depth', 'meanLeafDepth'),
+    line('Root degree (first-branch fan-out)', 'rootDegree'),
+    line('First-branch clade sizes', null, s => s.childSizes.join('|')),
+    line('First vs second clade', null, s => `${s.first}vs${s.second}`),
+    line('Split balance (2nd/1st)', 'splitBalance'),
+    line('Cherries', 'cherries'),
+    line('Polytomies', 'multifurc'),
+    line('Resolution', 'resolution'),
+    ''
+  ];
 }
 
 function buildReport() {
@@ -1462,6 +1612,8 @@ function buildReport() {
     `Robinson-Foulds distance (normalized): ${rf.norm == null ? 'n/a' : rf.norm.toFixed(4)}`,
     rf.rf == null ? '' : `Computed on ${rf.n} shared taxa (${rf.a} domain splits / ${rf.b} taxonomy splits; max RF ${rf.maxRf}).`,
     '',
+    '## Tree analytics',
+    ...statsReportLines(c.stats),
     '## Exact shared taxa',
     c.shared.join('\n') || '(none)',
     '',

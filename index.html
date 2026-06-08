@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyanobacteria Phylo Pipeline</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f6f2;
+    --surface: #ffffff;
+    --surface2: #f0ede6;
+    --border: #ddd9ce;
+    --border2: #c8c3b4;
+    --text: #1a1917;
+    --text2: #6b6760;
+    --text3: #9e9a93;
+    --accent: #2d6a4f;
+    --accent-light: #e8f4ee;
+    --accent2: #1b4332;
+    --header-bg: #1b4332;
+    --warn: #7c4a00;
+    --warn-bg: #fef3c7;
+    --mono: 'Courier New', monospace;
+    --sans: 'Georgia', serif;
+    --ui: system-ui, sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  [data-theme="dark"] {
+    --bg: #14171a;
+    --surface: #1c2024;
+    --surface2: #23282d;
+    --border: #2e353b;
+    --border2: #3a424a;
+    --text: #e6e3dd;
+    --text2: #a8a39a;
+    --text3: #6f6a62;
+    --accent: #52b788;
+    --accent-light: #1b3a2c;
+    --accent2: #74c69d;
+    --header-bg: #10201a;
+    --warn: #fbbf24;
+    --warn-bg: #3a2e10;
+  }
+
+  body {
+    font-family: var(--ui);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  header {
+    background: var(--header-bg);
+    color: #fff;
+    padding: 20px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  header .logo {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  header .sub {
+    font-size: 13px;
+    opacity: 0.65;
+    margin-top: 2px;
+  }
+
+  .pipeline {
+    display: flex;
+    gap: 0;
+    min-height: calc(100vh - 64px);
+  }
+
+  .sidebar {
+    width: 220px;
+    min-width: 220px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text3);
+    padding: 0 16px 8px;
+  }
+
+  .step-nav {
+    list-style: none;
+  }
+
+  .step-nav li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text2);
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    line-height: 1.3;
+  }
+
+  .step-nav li:hover { background: var(--surface2); color: var(--text); }
+  .step-nav li.active { border-left-color: var(--accent); color: var(--accent2); background: var(--accent-light); font-weight: 500; }
+
+  .step-num {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text3);
+    flex-shrink: 0;
+  }
+
+  .step-nav li.active .step-num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .step-nav li.done .step-num {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .main {
+    flex: 1;
+    padding: 32px;
+    max-width: 900px;
+  }
+
+  .step-panel { display: none; }
+  .step-panel.active { display: block; }
+
+  .panel-header {
+    margin-bottom: 24px;
+  }
+
+  .panel-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+
+  .panel-header p {
+    font-size: 14px;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text2);
+    margin-bottom: 8px;
+  }
+
+  textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    color: var(--text);
+    background: var(--bg);
+    transition: border-color 0.15s;
+    outline: none;
+  }
+
+  textarea:focus { border-color: var(--accent); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    color: var(--text);
+    transition: all 0.15s;
+  }
+
+  .btn:hover { background: var(--surface2); border-color: var(--accent); color: var(--accent2); }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+
+  .btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .output-block {
+    background: #1a1917;
+    color: #b8ffc8;
+    border-radius: var(--radius);
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 320px;
+    overflow-y: auto;
+    margin-top: 12px;
+    position: relative;
+  }
+
+  .output-empty {
+    color: #666;
+    font-style: italic;
+  }
+
+  .stat-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    background: var(--accent-light);
+    border: 1px solid #b7d9c9;
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .stat .val {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--accent2);
+    display: block;
+  }
+
+  .stat .lbl {
+    font-size: 11px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .notice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: var(--warn-bg);
+    border: 1px solid #fcd34d;
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--warn);
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+
+  .notice .icon { flex-shrink: 0; font-size: 16px; margin-top: 1px; }
+
+  .manual-step {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .manual-step:last-child { border-bottom: none; }
+
+  .manual-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .manual-step .desc { font-size: 13px; color: var(--text); line-height: 1.6; }
+  .manual-step .desc a { color: var(--accent); text-decoration: underline; }
+  .manual-step .desc code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .tree-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+  }
+
+  .tree-panel h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .species-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  .species-table th {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text2);
+    position: sticky;
+    top: 0;
+  }
+
+  .species-table td {
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    line-height: 1.4;
+  }
+
+  .species-table tr:nth-child(even) td { background: var(--bg); }
+  .species-table tr:hover td { background: var(--accent-light); }
+
+  .table-wrap {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-top: 12px;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: var(--accent-light);
+    color: var(--accent2);
+    border: 1px solid #b7d9c9;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .copy-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--header-bg);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  .copy-toast.show { opacity: 1; }
+
+  .rf-result {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--surface2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+
+  .rf-result h4 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+
+  select {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .tab-row {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .tab {
+    padding: 8px 18px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text2);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); font-weight: 500; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Theme toggle */
+  .theme-toggle {
+    margin-left: auto;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff;
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .theme-toggle:hover { background: rgba(255,255,255,0.24); }
+
+  /* Drag & drop zones */
+  .drop-zone {
+    border: 2px dashed var(--border2);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text3);
+    margin-bottom: 10px;
+    transition: all 0.15s;
+    cursor: pointer;
+    line-height: 1.5;
+  }
+  .drop-zone:hover { border-color: var(--accent); color: var(--text2); }
+  .drop-zone.over {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent2);
+  }
+  .drop-zone strong { color: var(--accent); }
+
+  /* Tree visualization */
+  .tree-svg {
+    max-height: 300px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    margin-top: 8px;
+  }
+  .tree-svg line, .tree-svg path { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+  .tree-svg text { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+
+  /* Name mapping table */
+  .map-score {
+    display: inline-block;
+    min-width: 42px;
+    text-align: center;
+    border-radius: 99px;
+    padding: 1px 6px;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .map-exact { background: var(--accent-light); color: var(--accent2); border: 1px solid #b7d9c9; }
+  .map-fuzzy { background: #fef3c7; color: #7c4a00; border: 1px solid #fcd34d; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">Cyanobacteria Phylo Pipeline</div>
+    <div class="sub">UMAP of Life → Domain tree vs. Taxonomy tree</div>
+  </div>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
+</header>
+
+<div class="pipeline">
+  <nav class="sidebar">
+    <div class="sidebar-label">Steps</div>
+    <ul class="step-nav" id="stepNav">
+      <li class="active" onclick="goStep(0)"><span class="step-num">1</span>Parse species list</li>
+      <li onclick="goStep(1)"><span class="step-num">2</span>Extract taxIDs</li>
+      <li onclick="goStep(2)"><span class="step-num">3</span>.phy → Newick</li>
+      <li onclick="goStep(3)"><span class="step-num">4</span>Compare trees</li>
+      <li onclick="goStep(4)"><span class="step-num">5</span>Workflow guide</li>
+    </ul>
+  </nav>
+
+  <main class="main">
+
+    <!-- STEP 1: Parse species list -->
+    <div class="step-panel active" id="panel-0">
+      <div class="panel-header">
+        <h2>Parse species list from UMAP export</h2>
+        <p>Paste the exported CSV text from the UMAP of Life site (the "Column c" format, or raw CSV rows). The tool will extract species names, taxIDs, orders, and UMAP coordinates.</p>
+      </div>
+
+      <div class="card">
+        <label>Paste CSV / species list text</label>
+        <div class="drop-zone" id="speciesDrop">Drop a <strong>.csv / .txt</strong> file here, or paste below</div>
+        <textarea id="speciesInput" rows="10" placeholder="Paste lines like:&#10;● Acaryochloris marina (strain MBIC 11017) [ID: 329726] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Acaryochloridales > Acaryochloridaceae > Acaryochloris | 2.36626, -8.21302&#10;&#10;...or raw CSV rows"></textarea>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="parseSpecies()">Parse species list</button>
+          <button class="btn" onclick="loadExample()">Load example</button>
+          <button class="btn btn-sm" onclick="clearSpecies()">Clear</button>
+        </div>
+      </div>
+
+      <div id="parseOutput" style="display:none;">
+        <div class="stat-row" id="parseStats"></div>
+        <div class="table-wrap">
+          <table class="species-table" id="speciesTable">
+            <thead><tr><th>#</th><th>Species</th><th>TaxID</th><th>Order</th><th>Family</th><th>Genus</th><th>UMAP x</th><th>UMAP y</th></tr></thead>
+            <tbody id="speciesBody"></tbody>
+          </table>
+        </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" onclick="copyTable()">Copy as TSV</button>
+          <button class="btn btn-primary" onclick="goStep(1)">Next: Extract taxIDs →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: Extract taxIDs -->
+    <div class="step-panel" id="panel-1">
+      <div class="panel-header">
+        <h2>Extract taxIDs for NCBI CommonTree</h2>
+        <p>Outputs taxIDs one per line, ready to paste into <a href="https://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi" target="_blank" style="color:var(--accent)">NCBI CommonTree</a>. Select phylip format, then save as .phy file.</p>
+      </div>
+
+      <div class="notice">
+        <span class="icon">⚠</span>
+        <span>NCBI CommonTree requires manual submission — paste the taxID list into the website, choose <strong>Phylip tree</strong> format, and click Save As to get the .phy file.</span>
+      </div>
+
+      <div class="card">
+        <label>TaxIDs (one per line)</label>
+        <div class="output-block" id="taxidOutput"><span class="output-empty">Run step 1 first, or paste species list above.</span></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="downloadTaxIDs()">Download as .txt</button>
+          <a href="https://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi" target="_blank"><button class="btn">Open NCBI CommonTree ↗</button></a>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="goStep(2)">Next: Convert .phy → Newick →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: .phy → Newick -->
+    <div class="step-panel" id="panel-2">
+      <div class="panel-header">
+        <h2>Convert .phy format to clean Newick</h2>
+        <p>Paste the content of your .phy file (NCBI Phylip output). This strips Phylip headers, fixes whitespace, and outputs clean Newick format usable in Phylo.io or FigTree.</p>
+      </div>
+
+      <div class="tab-row">
+        <div class="tab active" onclick="switchTab(this, 'phy-tab')">Convert .phy file</div>
+        <div class="tab" onclick="switchTab(this, 'newick-tab')">Clean/validate Newick</div>
+      </div>
+
+      <div class="tab-content active" id="phy-tab">
+        <div class="card">
+          <label>Paste .phy file content</label>
+          <div class="drop-zone" id="phyDrop">Drop a <strong>.phy / .nwk / .txt</strong> file here, or paste below</div>
+          <textarea id="phyInput" rows="10" placeholder="Paste the entire content of your .phy file here.&#10;&#10;Phylip format typically starts with the number of taxa and characters on the first line, followed by the tree data. NCBI CommonTree phylip output often contains a Newick string with brackets and species names."></textarea>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="convertPhy()">Convert to Newick</button>
+            <button class="btn btn-sm" onclick="document.getElementById('phyInput').value=''">Clear</button>
+          </div>
+        </div>
+
+        <div class="card" id="phyOutput" style="display:none;">
+          <label>Clean Newick output</label>
+          <div class="output-block" id="newickOut" style="color: #7dd3fc;"></div>
+          <div class="stat-row" id="newickStats"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="copyNewick('newickOut')">Copy Newick</button>
+            <button class="btn" onclick="downloadNewick('domain')">Download as .nwk</button>
+            <button class="btn btn-sm" onclick="sendToCompare('domain')">Send to tree compare →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="newick-tab">
+        <div class="card">
+          <label>Paste Newick string to validate/clean</label>
+          <textarea id="newickCleanInput" rows="10" placeholder="Paste any Newick string here to strip extra whitespace, validate bracket balance, and normalize formatting."></textarea>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="cleanNewick()">Clean & validate</button>
+          </div>
+        </div>
+        <div class="card" id="cleanOutput" style="display:none;">
+          <label>Cleaned Newick</label>
+          <div class="output-block" id="cleanNewickOut" style="color: #7dd3fc;"></div>
+          <div id="cleanStats" class="stat-row"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="copyNewick('cleanNewickOut')">Copy</button>
+            <button class="btn btn-sm" onclick="sendToCompare('taxonomy')">Send to tree compare as taxonomy tree →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-primary" onclick="goStep(3)">Next: Compare trees →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Compare trees -->
+    <div class="step-panel" id="panel-3">
+      <div class="panel-header">
+        <h2>Compare domain tree vs. taxonomy tree</h2>
+        <p>Paste both Newick strings to compute Robinson-Foulds distance and leaf set overlap. For full visual comparison, use Phylo.io.</p>
+      </div>
+
+      <div class="compare-grid">
+        <div class="tree-panel">
+          <h4>🧬 Domain tree (UMAP)</h4>
+          <textarea id="domainTree" rows="8" placeholder="Paste domain-based Newick from UMAP of Life site..."></textarea>
+          <div class="tree-svg" id="domainViz" style="display:none;"></div>
+        </div>
+        <div class="tree-panel">
+          <h4>🌿 Taxonomy tree (NCBI)</h4>
+          <textarea id="taxonomyTree" rows="8" placeholder="Paste taxonomy Newick from NCBI CommonTree .phy conversion..."></textarea>
+          <div class="tree-svg" id="taxonomyViz" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="btn btn-primary" onclick="compareTrees()">Compare trees</button>
+        <a href="https://phylo.io" target="_blank"><button class="btn">Open Phylo.io ↗</button></a>
+      </div>
+
+      <div id="compareOutput" style="display:none; margin-top:20px;">
+        <div class="stat-row" id="compareStats"></div>
+
+        <div class="rf-result" id="rfResult">
+          <h4>Robinson-Foulds analysis</h4>
+          <div id="rfDetails" style="font-size:13px; color:var(--text2); line-height:1.7;"></div>
+        </div>
+
+        <div class="card" id="nameMapCard" style="margin-top:16px; display:none;">
+          <label>Name mapping (fuzzy-matched taxa across trees)</label>
+          <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
+            Taxa that don't match exactly but likely refer to the same organism (strain suffixes, bracket formatting, "= synonym" notation). Fuzzy matches are folded into the shared set before computing RF.
+          </p>
+          <div class="table-wrap" style="max-height:260px;">
+            <table class="species-table" id="nameMapTable">
+              <thead><tr><th>Domain tree taxon</th><th>Taxonomy tree taxon</th><th>Match</th></tr></thead>
+              <tbody id="nameMapBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <label>Shared taxa (in both trees)</label>
+          <div class="output-block" id="sharedTaxa" style="max-height:200px; color:#86efac;"></div>
+        </div>
+
+        <div class="card">
+          <label>Domain tree only (not in taxonomy tree)</label>
+          <div class="output-block" id="domainOnly" style="max-height:150px; color:#fca5a5;"></div>
+        </div>
+
+        <div class="card">
+          <label>Taxonomy tree only (not in domain tree)</label>
+          <div class="output-block" id="taxOnly" style="max-height:150px; color:#fca5a5;"></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="exportCompareReport()">Export comparison report</button>
+          <button class="btn btn-primary" onclick="downloadAll()">⬇ Download all (.zip)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 5: Workflow guide -->
+    <div class="step-panel" id="panel-4">
+      <div class="panel-header">
+        <h2>Full workflow guide</h2>
+        <p>The complete Pelegrini Lab pipeline from UMAP selection to Phylo.io comparison, with automated steps highlighted.</p>
+      </div>
+
+      <div class="card">
+        <div class="manual-step">
+          <span class="manual-num">1</span>
+          <div class="desc">
+            Go to <a href="https://umap.mcdb.ucla.edu/v2/" target="_blank">UMAP of Life v2</a>. The map contains Archaea + Bacteria + Eukaryota organisms (23,656 PFAMs, correlation metric). Use <strong>Select mode</strong> to draw a lasso around the Cyanophyceae cluster in the Bacteria region (orange dots, lower-left dense cluster).
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">2</span>
+          <div class="desc">
+            After selection, click <strong>Export CSV</strong>. The CSV contains species info in the format:<br>
+            <code>[Name] [ID: taxID] | taxonomy path | x, y</code><br>
+            Paste this into <strong>Step 1</strong> of this tool to parse it.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">3</span>
+          <div class="desc">
+            <span class="badge">Automated</span> Use <strong>Step 1</strong> to parse species and <strong>Step 2</strong> to extract taxIDs one per line.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">4</span>
+          <div class="desc">
+            Copy the taxID list from Step 2. Go to <a href="https://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi" target="_blank">NCBI CommonTree</a>, paste the IDs, select <strong>Phylip tree</strong> format, and click <strong>Save as:</strong> to download the .phy file.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">5</span>
+          <div class="desc">
+            <span class="badge">Automated</span> Paste the .phy content into <strong>Step 3</strong> to convert to clean Newick format. This is your <em>taxonomy tree</em>.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">6</span>
+          <div class="desc">
+            Back on the UMAP site, with your Cyanophyceae still selected, click <strong>Make Phylogenetic Tree (based on domain count)</strong>, then <strong>Download Newick</strong>. This is your <em>domain tree</em>.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">7</span>
+          <div class="desc">
+            <span class="badge">Automated</span> Paste both Newick strings into <strong>Step 4</strong> to compute Robinson-Foulds distance, leaf overlap, and discordance statistics.
+          </div>
+        </div>
+        <div class="manual-step">
+          <span class="manual-num">8</span>
+          <div class="desc">
+            For visual side-by-side comparison, go to <a href="https://phylo.io" target="_blank">Phylo.io</a>, upload both Newick files, and enable color-coded topological similarity. RF distance from Step 4 tells you the magnitude of discordance between domain-based and taxonomic groupings.
+          </div>
+        </div>
+      </div>
+
+      <div class="notice" style="margin-top:0;">
+        <span class="icon">💡</span>
+        <span><strong>What RF distance means here:</strong> A low RF score means domain co-occurrence patterns (Pfam profiles) recover the same phylogenetic relationships as formal taxonomy — the protein domain landscape mirrors evolutionary history. A high RF score reveals clades where horizontal gene transfer, convergent evolution, or taxonomic revision may explain the mismatch.</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div class="copy-toast" id="copyToast">Copied to clipboard</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+let parsedSpecies = [];
+let treeStore = { domain: '', taxonomy: '' };
+let lastCompare = null;
+
+const EXAMPLE = `[Limnothrix rosea] IAM M-220 [ID: 454133] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Chroococcales > Geminocystaceae > Picosynechococcus | 2.5846, -7.9445
+Acaryochloris marina (strain MBIC 11017) [ID: 329726] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Acaryochloridales > Acaryochloridaceae > Acaryochloris | 2.36626, -8.21302
+Acaryochloris thomasi RCC1774 [ID: 1764569] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Acaryochloridales > Acaryochloridaceae > Acaryochloris | 2.35187, -8.19655
+Aerosakkonema funiforme FACHB-1375 [ID: 2949571] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Oscillatoriales > Aerosakkonemataceae > Aerosakkonema | 2.22844, -7.9002
+Anabaena cylindrica (strain ATCC 27899 / PCC 7122) [ID: 272123] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Nostocales > Nostocaceae > Anabaena | 2.42837, -7.72165
+Nostoc punctiforme (strain ATCC 29133 / PCC 73102) [ID: 63737] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Nostocales > Nostocaceae > Nostoc | 2.33112, -7.70899
+Synechococcus elongatus (strain ATCC 33912 / PCC 7942) [ID: 1140] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Synechococcales > Synechococcaceae > Synechococcus | 2.71929, -8.03574
+Prochlorococcus marinus (strain MIT 9313) [ID: 74547] | Bacteria > Bacillati > Cyanobacteriota > Cyanophyceae > Synechococcales > Prochlorococcaceae > Prochlorococcus | 3.4015, -8.3935`;
+
+/* ───────────────────────── Newick parser ───────────────────────── */
+// Parses a Newick string into a nested node tree: {name, length, children[]}.
+function parseNewick(str) {
+  let s = cleanNewickStr(str);
+  if (!s) return null;
+  const open = s.indexOf('(');
+  if (open > 0) s = s.slice(open);
+  if (!s.endsWith(';')) s += ';';
+  let i = 0;
+  const stops = '(),:;';
+  function node() {
+    const n = { name: '', length: null, children: [] };
+    if (s[i] === '(') {
+      i++;
+      for (;;) {
+        n.children.push(node());
+        if (s[i] === ',') { i++; continue; }
+        break;
+      }
+      if (s[i] === ')') i++;
+    }
+    let label = '';
+    if (s[i] === "'") { // quoted label
+      i++;
+      while (i < s.length && s[i] !== "'") label += s[i++];
+      i++; // closing quote
+    } else {
+      while (i < s.length && !stops.includes(s[i])) label += s[i++];
+    }
+    n.name = label.trim().replace(/_/g, ' ').trim();
+    if (s[i] === ':') {
+      i++;
+      let num = '';
+      while (i < s.length && !'(),;'.includes(s[i])) num += s[i++];
+      n.length = parseFloat(num);
+    }
+    return n;
+  }
+  try {
+    const root = node();
+    return root.children.length || root.name ? root : null;
+  } catch (e) { return null; }
+}
+
+function treeLeaves(node, acc) {
+  acc = acc || [];
+  if (!node) return acc;
+  if (node.children.length === 0) { if (node.name) acc.push(node.name); }
+  else node.children.forEach(c => treeLeaves(c, acc));
+  return acc;
+}
+
+// Robust leaf list: prefer the parser, fall back to the legacy regex scan.
+function getLeaves(newick) {
+  const t = parseNewick(newick);
+  if (t) {
+    const ls = [...new Set(treeLeaves(t))];
+    if (ls.length) return ls;
+  }
+  return extractTaxa(newick);
+}
+
+/* ─────────────────── Robinson-Foulds distance ──────────────────── */
+// Canonical, orientation-independent representation of a bipartition.
+function canonicalSplit(indices, n) {
+  const bits = new Array(n).fill(0);
+  indices.forEach(i => { bits[i] = 1; });
+  if (bits[0] === 1) for (let k = 0; k < n; k++) bits[k] = bits[k] ? 0 : 1;
+  return bits.join('');
+}
+
+// Non-trivial bipartitions of a tree restricted to a shared leaf index map.
+function bipartitions(root, leafIndex, n) {
+  const splits = new Set();
+  function recurse(node) {
+    if (node.children.length === 0) {
+      const s = [];
+      if (leafIndex.has(node.name)) s.push(leafIndex.get(node.name));
+      return s;
+    }
+    let cluster = [];
+    node.children.forEach(c => { cluster = cluster.concat(recurse(c)); });
+    const size = cluster.length;
+    if (size > 1 && size < n - 1) splits.add(canonicalSplit(cluster, n));
+    return cluster;
+  }
+  recurse(root);
+  return splits;
+}
+
+// RF distance on the leaf set shared by both trees (induced subtrees).
+function robinsonFoulds(t1, t2) {
+  const l1 = new Set(treeLeaves(t1)), l2 = new Set(treeLeaves(t2));
+  const shared = [...l1].filter(x => l2.has(x));
+  const n = shared.length;
+  if (n < 4) return { rf: null, norm: null, n, a: 0, b: 0, msg: 'Need ≥ 4 shared taxa for RF' };
+  const idx = new Map(shared.map((name, i) => [name, i]));
+  const A = bipartitions(t1, idx, n);
+  const B = bipartitions(t2, idx, n);
+  let diff = 0;
+  A.forEach(s => { if (!B.has(s)) diff++; });
+  B.forEach(s => { if (!A.has(s)) diff++; });
+  const denom = A.size + B.size;
+  const norm = denom > 0 ? diff / denom : 0;
+  return { rf: diff, norm, n, a: A.size, b: B.size, maxRf: denom };
+}
+
+/* ────────────────── Name normalization & matching ───────────────── */
+function normName(s) {
+  return s.toLowerCase()
+    .replace(/\[[^\]]*\]/g, ' ')      // [ID: 123] / bracket tags
+    .replace(/=.*$/, ' ')             // "PCC 7942 = FACHB-805" → keep first
+    .replace(/\bstrain\b/g, ' ')
+    .replace(/[()]/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let cur = [i];
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function nameSimilarity(a, b) {
+  const na = normName(a), nb = normName(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  let sim = 1 - levenshtein(na, nb) / Math.max(na.length, nb.length);
+  // Boost when genus + species (first two tokens) agree.
+  const ta = na.split(' '), tb = nb.split(' ');
+  if (ta[0] && ta[0] === tb[0] && ta[1] && ta[1] === tb[1]) sim = Math.max(sim, 0.85);
+  return sim;
+}
+
+// Greedy best-match pairing of two leftover name lists above a threshold.
+function fuzzyMatch(listA, listB, threshold) {
+  threshold = threshold == null ? 0.6 : threshold;
+  const pairs = [];
+  const usedB = new Set();
+  listA.forEach(a => {
+    let best = null, bestScore = threshold;
+    listB.forEach(b => {
+      if (usedB.has(b)) return;
+      const s = nameSimilarity(a, b);
+      if (s >= bestScore) { bestScore = s; best = b; }
+    });
+    if (best) { pairs.push({ a, b: best, score: bestScore }); usedB.add(best); }
+  });
+  return pairs;
+}
+
+/* ────────────────────── Cladogram rendering ─────────────────────── */
+function renderCladogram(newick, containerId) {
+  const container = document.getElementById(containerId);
+  const root = parseNewick(newick);
+  if (!root) { container.style.display = 'none'; return; }
+
+  const leafN = [];
+  (function collect(n) { n.children.length ? n.children.forEach(collect) : leafN.push(n); })(root);
+  if (leafN.length === 0) { container.style.display = 'none'; return; }
+
+  let maxDepth = 0;
+  (function depth(n, d) { n._d = d; if (d > maxDepth) maxDepth = d; n.children.forEach(c => depth(c, d + 1)); })(root, 0);
+
+  const rowH = 16, padT = 12, padL = 8, labelW = 180;
+  const colW = Math.max(16, Math.min(48, 420 / (maxDepth + 1)));
+  let li = 0;
+  (function setY(n) {
+    if (n.children.length === 0) { n._y = padT + li * rowH; li++; }
+    else { n.children.forEach(setY); n._y = (n.children[0]._y + n.children[n.children.length - 1]._y) / 2; }
+  })(root);
+
+  const height = padT * 2 + leafN.length * rowH;
+  const width = padL + (maxDepth + 1) * colW + labelW;
+  const parts = [`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`];
+
+  (function draw(n) {
+    const x = padL + n._d * colW;
+    n.children.forEach(c => {
+      const cx = padL + c._d * colW;
+      parts.push(`<line x1="${x}" y1="${c._y}" x2="${cx}" y2="${c._y}"/>`);
+      draw(c);
+    });
+    if (n.children.length) {
+      const y1 = n.children[0]._y, y2 = n.children[n.children.length - 1]._y;
+      parts.push(`<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/>`);
+    } else {
+      parts.push(`<text x="${x + 5}" y="${n._y + 4}">${escapeHtml(n.name)}</text>`);
+    }
+  })(root);
+
+  parts.push('</svg>');
+  container.innerHTML = parts.join('');
+  container.style.display = 'block';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function loadExample() {
+  document.getElementById('speciesInput').value = EXAMPLE;
+}
+
+function clearSpecies() {
+  document.getElementById('speciesInput').value = '';
+  document.getElementById('parseOutput').style.display = 'none';
+  parsedSpecies = [];
+}
+
+function parseSpecies() {
+  const raw = document.getElementById('speciesInput').value.trim();
+  if (!raw) { alert('Paste some species data first.'); return; }
+
+  const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  parsedSpecies = [];
+
+  for (const line of lines) {
+    const cleaned = line.replace(/^[●•\-\*]\s*/, '');
+    const idMatch = cleaned.match(/\[ID:\s*(\d+)\]/);
+    const taxID = idMatch ? idMatch[1] : '';
+
+    const nameMatch = cleaned.match(/^(.*?)\s*\[ID:/);
+    const name = nameMatch ? nameMatch[1].trim() : cleaned.split('|')[0].trim();
+
+    const pipeIdx = cleaned.indexOf('|');
+    let order = '', family = '', genus = '';
+    let coords = ['', ''];
+
+    if (pipeIdx > -1) {
+      const rest = cleaned.slice(pipeIdx + 1).trim();
+      const pipeIdx2 = rest.indexOf('|');
+      if (pipeIdx2 > -1) {
+        const taxPath = rest.slice(0, pipeIdx2).trim();
+        const coordStr = rest.slice(pipeIdx2 + 1).trim();
+        const parts = taxPath.split('>').map(p => p.trim());
+        order = parts[4] || '';
+        family = parts[5] || '';
+        genus = parts[6] || '';
+        const coordMatch = coordStr.match(/([-\d.]+),\s*([-\d.]+)/);
+        if (coordMatch) coords = [coordMatch[1], coordMatch[2]];
+      } else {
+        const coordMatch = rest.match(/([-\d.]+),\s*([-\d.]+)/);
+        if (coordMatch) coords = [coordMatch[1], coordMatch[2]];
+      }
+    }
+
+    if (name || taxID) {
+      parsedSpecies.push({ name, taxID, order, family, genus, x: coords[0], y: coords[1] });
+    }
+  }
+
+  if (parsedSpecies.length === 0) {
+    alert('Could not parse any species. Check the format.');
+    return;
+  }
+
+  renderSpeciesTable();
+  updateTaxIDOutput();
+  markDone(0);
+}
+
+function renderSpeciesTable() {
+  const tbody = document.getElementById('speciesBody');
+  tbody.innerHTML = '';
+  parsedSpecies.forEach((sp, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}</td><td><em>${sp.name}</em></td><td>${sp.taxID}</td><td>${sp.order}</td><td>${sp.family}</td><td>${sp.genus}</td><td>${sp.x}</td><td>${sp.y}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  const orders = [...new Set(parsedSpecies.map(s => s.order).filter(Boolean))];
+  const withID = parsedSpecies.filter(s => s.taxID).length;
+  document.getElementById('parseStats').innerHTML = `
+    <div class="stat"><span class="val">${parsedSpecies.length}</span><span class="lbl">Species</span></div>
+    <div class="stat"><span class="val">${withID}</span><span class="lbl">With TaxID</span></div>
+    <div class="stat"><span class="val">${orders.length}</span><span class="lbl">Orders</span></div>
+  `;
+  document.getElementById('parseOutput').style.display = 'block';
+}
+
+function updateTaxIDOutput() {
+  const ids = parsedSpecies.filter(s => s.taxID).map(s => s.taxID);
+  const el = document.getElementById('taxidOutput');
+  if (ids.length > 0) {
+    el.textContent = ids.join('\n');
+    el.classList.remove('output-empty');
+    markDone(1);
+  } else {
+    el.innerHTML = '<span class="output-empty">No taxIDs found.</span>';
+  }
+}
+
+function copyTable() {
+  const header = ['#', 'Species', 'TaxID', 'Order', 'Family', 'Genus', 'UMAP_x', 'UMAP_y'].join('\t');
+  const rows = parsedSpecies.map((sp, i) =>
+    [i+1, sp.name, sp.taxID, sp.order, sp.family, sp.genus, sp.x, sp.y].join('\t')
+  );
+  navigator.clipboard.writeText([header, ...rows].join('\n')).then(() => showToast('Table copied as TSV!'));
+}
+
+function downloadTaxIDs() {
+  const text = parsedSpecies.filter(s => s.taxID).map(s => s.taxID).join('\n');
+  if (!text) { alert('No taxIDs to download. Parse a species list in Step 1 first.'); return; }
+  download('taxids.txt', text);
+}
+
+function convertPhy() {
+  const raw = document.getElementById('phyInput').value.trim();
+  if (!raw) { alert('Paste .phy content first.'); return; }
+
+  let newick = extractNewick(raw);
+  if (!newick) {
+    alert('Could not extract a Newick string. Make sure the file contains parentheses tree notation.');
+    return;
+  }
+
+  newick = cleanNewickStr(newick);
+  document.getElementById('newickOut').textContent = newick;
+  showNewickStats('newickStats', newick);
+  document.getElementById('phyOutput').style.display = 'block';
+  markDone(2);
+}
+
+function cleanNewick() {
+  const raw = document.getElementById('newickCleanInput').value.trim();
+  if (!raw) { alert('Paste a Newick string first.'); return; }
+  let newick = extractNewick(raw) || raw;
+  newick = cleanNewickStr(newick);
+  const valid = validateNewick(newick);
+  document.getElementById('cleanNewickOut').textContent = newick;
+  showNewickStats('cleanStats', newick, valid);
+  document.getElementById('cleanOutput').style.display = 'block';
+  markDone(2);
+}
+
+function extractNewick(text) {
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.startsWith('(') || t.includes('(')) {
+      const start = t.indexOf('(');
+      if (start > -1) return t.slice(start);
+    }
+  }
+  if (text.includes('(')) {
+    const start = text.indexOf('(');
+    return text.slice(start);
+  }
+  return null;
+}
+
+function cleanNewickStr(s) {
+  return s
+    .replace(/\r\n/g, '')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function validateNewick(s) {
+  let depth = 0;
+  for (const c of s) {
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    if (depth < 0) return { ok: false, msg: 'Unmatched closing parenthesis' };
+  }
+  if (depth !== 0) return { ok: false, msg: `${depth} unclosed parentheses` };
+  if (!s.endsWith(';')) return { ok: false, msg: 'Missing terminal semicolon' };
+  return { ok: true, msg: 'Valid Newick' };
+}
+
+function showNewickStats(elId, newick, valid) {
+  const taxa = extractTaxa(newick);
+  const v = valid || validateNewick(newick);
+  const depth = estimateDepth(newick);
+  document.getElementById(elId).innerHTML = `
+    <div class="stat"><span class="val">${taxa.length}</span><span class="lbl">Taxa (leaves)</span></div>
+    <div class="stat"><span class="val">${depth}</span><span class="lbl">Max depth (est.)</span></div>
+    <div class="stat" style="${v.ok ? '' : 'background:#fee2e2; border-color:#fca5a5;'}">
+      <span class="val" style="font-size:14px; ${v.ok ? 'color:var(--accent2)' : 'color:#991b1b'}">${v.ok ? '✓ Valid' : '✗ Invalid'}</span>
+      <span class="lbl">${v.msg}</span>
+    </div>
+  `;
+}
+
+function extractTaxa(newick) {
+  const taxa = [];
+  const re = /([A-Za-z0-9_\[\]'.\- ]+):[\d.eE+\-]+/g;
+  let m;
+  while ((m = re.exec(newick)) !== null) {
+    const name = m[1].trim().replace(/^['"]|['"]$/g, '');
+    if (name && !name.match(/^\d+$/)) taxa.push(name);
+  }
+  if (taxa.length === 0) {
+    const re2 = /[,(]([A-Za-z][A-Za-z0-9_\[\]'.\- ]+)/g;
+    while ((m = re2.exec(newick)) !== null) {
+      const name = m[1].trim();
+      if (name) taxa.push(name);
+    }
+  }
+  return [...new Set(taxa)];
+}
+
+function estimateDepth(newick) {
+  let max = 0, cur = 0;
+  for (const c of newick) {
+    if (c === '(') { cur++; max = Math.max(max, cur); }
+    else if (c === ')') cur--;
+  }
+  return max;
+}
+
+function copyNewick(id) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Newick copied!'));
+}
+
+function downloadNewick(type) {
+  const id = type === 'domain' ? 'newickOut' : 'cleanNewickOut';
+  const text = document.getElementById(id).textContent;
+  if (!text) { alert('No Newick to download.'); return; }
+  download(`${type}_tree.nwk`, text);
+}
+
+function sendToCompare(type) {
+  const id = type === 'domain' ? 'newickOut' : 'cleanNewickOut';
+  const text = document.getElementById(id).textContent;
+  if (!text) { alert('No Newick generated yet.'); return; }
+  treeStore[type] = text;
+  document.getElementById(type === 'domain' ? 'domainTree' : 'taxonomyTree').value = text;
+  goStep(3);
+  showToast(`Sent to compare as ${type} tree!`);
+}
+
+function renameLeaves(node, map) {
+  if (node.children.length === 0) {
+    if (map.has(node.name)) node.name = map.get(node.name);
+  } else node.children.forEach(c => renameLeaves(c, map));
+}
+
+function compareTrees() {
+  const d = document.getElementById('domainTree').value.trim();
+  const t = document.getElementById('taxonomyTree').value.trim();
+  if (!d || !t) { alert('Paste both Newick trees first.'); return; }
+
+  const dLeaves = getLeaves(d), tLeaves = getLeaves(t);
+  const dTaxa = new Set(dLeaves), tTaxa = new Set(tLeaves);
+
+  let shared = [...dTaxa].filter(x => tTaxa.has(x));
+  let dOnly = [...dTaxa].filter(x => !tTaxa.has(x));
+  let tOnly = [...tTaxa].filter(x => !dTaxa.has(x));
+
+  // Fuzzy-match the leftovers (strain suffixes, bracket/synonym formatting).
+  const fuzzy = fuzzyMatch(dOnly, tOnly, 0.6);
+  const renameMap = new Map(fuzzy.map(p => [p.b, p.a])); // taxonomy name → domain name
+  const effShared = shared.length + fuzzy.length;
+
+  const jaccardSim = effShared / (dTaxa.size + tTaxa.size - effShared);
+  const overlapPct = Math.round(100 * effShared / Math.max(dTaxa.size, tTaxa.size));
+
+  // RF on the domain tree vs. the taxonomy tree relabeled with fuzzy matches.
+  const tDom = parseNewick(d);
+  const tTax = parseNewick(t);
+  let rf = { rf: null, norm: null, n: effShared, a: 0, b: 0, msg: 'Could not parse one tree' };
+  if (tDom && tTax) { renameLeaves(tTax, renameMap); rf = robinsonFoulds(tDom, tTax); }
+
+  document.getElementById('compareStats').innerHTML = `
+    <div class="stat"><span class="val">${dTaxa.size}</span><span class="lbl">Domain tree taxa</span></div>
+    <div class="stat"><span class="val">${tTaxa.size}</span><span class="lbl">Taxonomy tree taxa</span></div>
+    <div class="stat"><span class="val">${effShared}</span><span class="lbl">Shared taxa</span></div>
+    <div class="stat"><span class="val">${overlapPct}%</span><span class="lbl">Leaf overlap</span></div>
+  `;
+
+  const rfLine = rf.rf == null
+    ? `<strong>Robinson-Foulds distance:</strong> n/a — ${rf.msg}.<br>`
+    : `<strong>Robinson-Foulds distance:</strong> ${rf.rf} (raw) &nbsp;|&nbsp; <strong>${rf.norm.toFixed(3)}</strong> normalized
+       <span style="color:var(--text3)">(0 = identical topology, 1 = maximally different)</span><br>
+       <span style="color:var(--text3)">Computed on ${rf.n} shared taxa · ${rf.a} domain splits / ${rf.b} taxonomy splits · max RF ${rf.maxRf}.</span><br>`;
+
+  document.getElementById('rfDetails').innerHTML = `
+    ${rfLine}
+    <strong>Leaf-set Jaccard similarity:</strong> ${jaccardSim.toFixed(3)} (${overlapPct}% overlap, incl. ${fuzzy.length} fuzzy match${fuzzy.length === 1 ? '' : 'es'})<br>
+    <strong>Domain-only taxa:</strong> ${dOnly.length - fuzzy.length} unmatched — in the domain tree but not the taxonomy tree.<br>
+    <strong>Taxonomy-only taxa:</strong> ${tOnly.length - fuzzy.length} unmatched — in the taxonomy tree but not the domain tree.<br><br>
+    <em>RF counts bipartitions (splits) present in one tree but not the other, restricted to shared leaves. Low RF ⇒ domain co-occurrence recovers the same clades as formal taxonomy; high RF flags HGT, convergence, or taxonomic revision. Cross-check visually in <a href="https://phylo.io" target="_blank" style="color:var(--accent)">Phylo.io</a> or with R's <code>ape::RF.dist()</code>.</em>
+  `;
+
+  // Name-mapping table (fuzzy matches only — the interesting cases).
+  const mapCard = document.getElementById('nameMapCard');
+  const mapBody = document.getElementById('nameMapBody');
+  if (fuzzy.length) {
+    mapBody.innerHTML = fuzzy.map(p => {
+      const cls = p.score >= 0.999 ? 'map-exact' : 'map-fuzzy';
+      return `<tr><td><em>${escapeHtml(p.a)}</em></td><td><em>${escapeHtml(p.b)}</em></td><td><span class="map-score ${cls}">${p.score.toFixed(2)}</span></td></tr>`;
+    }).join('');
+    mapCard.style.display = 'block';
+  } else {
+    mapCard.style.display = 'none';
+  }
+
+  document.getElementById('sharedTaxa').textContent = shared.length > 0 ? shared.join('\n') : '(none exact)';
+  const dUnmatched = dOnly.filter(x => !fuzzy.some(p => p.a === x));
+  const tUnmatched = tOnly.filter(x => !fuzzy.some(p => p.b === x));
+  document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.join('\n') : '(none — all domain taxa matched)';
+  document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.join('\n') : '(none — all taxonomy taxa matched)';
+
+  renderCladogram(d, 'domainViz');
+  renderCladogram(t, 'taxonomyViz');
+
+  lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct };
+  document.getElementById('compareOutput').style.display = 'block';
+  markDone(3);
+}
+
+function buildReport() {
+  if (!lastCompare) compareTrees();
+  if (!lastCompare) return null;
+  const c = lastCompare;
+  const rf = c.rf;
+  return [
+    '# Phylogenetic Tree Comparison Report',
+    `Generated: ${new Date().toISOString()}`,
+    '',
+    '## Summary',
+    `Shared taxa (exact + fuzzy): ${c.effShared}`,
+    `Leaf overlap: ${c.overlapPct}%`,
+    `Robinson-Foulds distance (raw): ${rf.rf == null ? 'n/a — ' + rf.msg : rf.rf}`,
+    `Robinson-Foulds distance (normalized): ${rf.norm == null ? 'n/a' : rf.norm.toFixed(4)}`,
+    rf.rf == null ? '' : `Computed on ${rf.n} shared taxa (${rf.a} domain splits / ${rf.b} taxonomy splits; max RF ${rf.maxRf}).`,
+    '',
+    '## Exact shared taxa',
+    c.shared.join('\n') || '(none)',
+    '',
+    '## Fuzzy-matched taxa (domain  <->  taxonomy : score)',
+    c.fuzzy.map(p => `${p.a}  <->  ${p.b}  : ${p.score.toFixed(2)}`).join('\n') || '(none)',
+    '',
+    '## Domain-only taxa (unmatched)',
+    c.dUnmatched.join('\n') || '(none)',
+    '',
+    '## Taxonomy-only taxa (unmatched)',
+    c.tUnmatched.join('\n') || '(none)',
+    '',
+    '## Domain tree (Newick)',
+    c.d,
+    '',
+    '## Taxonomy tree (Newick)',
+    c.t
+  ].join('\n');
+}
+
+function exportCompareReport() {
+  const report = buildReport();
+  if (!report) { alert('Compare two trees first.'); return; }
+  download('comparison_report.txt', report);
+}
+
+// Bundle every pipeline output into a single .zip (graceful fallback if JSZip is unreachable).
+function downloadAll() {
+  const taxids = parsedSpecies.filter(s => s.taxID).map(s => s.taxID).join('\n');
+  const domain = document.getElementById('domainTree').value.trim();
+  const taxonomy = document.getElementById('taxonomyTree').value.trim();
+  const report = lastCompare ? buildReport() : null;
+  const files = [];
+  if (taxids) files.push(['taxids.txt', taxids]);
+  if (domain) files.push(['domain_tree.nwk', domain]);
+  if (taxonomy) files.push(['taxonomy_tree.nwk', taxonomy]);
+  if (report) files.push(['comparison_report.txt', report]);
+  if (files.length === 0) { alert('Nothing to export yet. Run the earlier steps first.'); return; }
+
+  if (typeof JSZip === 'undefined') {
+    showToast('Zip library offline — downloading files individually');
+    files.forEach(([name, content]) => download(name, content));
+    return;
+  }
+  const zip = new JSZip();
+  files.forEach(([name, content]) => zip.file(name, content));
+  zip.generateAsync({ type: 'blob' }).then(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'phylo_pipeline_outputs.zip';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded phylo_pipeline_outputs.zip');
+  });
+}
+
+/* ───────────────────── Navigation & progress ────────────────────── */
+let completedSteps = new Set(JSON.parse(sessionStorage.getItem('phyloProgress') || '[]'));
+
+function markDone(n) {
+  completedSteps.add(n);
+  sessionStorage.setItem('phyloProgress', JSON.stringify([...completedSteps]));
+  renderProgress();
+}
+
+function renderProgress() {
+  document.querySelectorAll('.step-nav li').forEach((li, i) => {
+    const num = li.querySelector('.step-num');
+    if (completedSteps.has(i)) { li.classList.add('done'); num.textContent = '✓'; }
+    else { li.classList.remove('done'); num.textContent = String(i + 1); }
+  });
+}
+
+function goStep(n) {
+  document.querySelectorAll('.step-panel').forEach((p, i) => p.classList.toggle('active', i === n));
+  document.querySelectorAll('.step-nav li').forEach((li, i) => li.classList.toggle('active', i === n));
+  renderProgress();
+}
+
+/* ───────────────────────── Dark mode ────────────────────────────── */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀' : '☾';
+}
+function toggleTheme() {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('phyloTheme', next);
+  applyTheme(next);
+}
+
+/* ───────────────────── Drag & drop file input ───────────────────── */
+function wireDropZone(zoneId, targetId, after) {
+  const zone = document.getElementById(zoneId);
+  const target = document.getElementById(targetId);
+  if (!zone || !target) return;
+  zone.addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.csv,.txt,.phy,.nwk,.tree,.newick';
+    inp.onchange = () => { if (inp.files[0]) readFileInto(inp.files[0], target, after); };
+    inp.click();
+  });
+  ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove('over');
+  }));
+  zone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) readFileInto(f, target, after);
+  });
+}
+function readFileInto(file, target, after) {
+  const reader = new FileReader();
+  reader.onload = () => { target.value = reader.result; if (after) after(); showToast('Loaded ' + file.name); };
+  reader.readAsText(file);
+}
+
+/* ─────────────────────────── Init ───────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(localStorage.getItem('phyloTheme') || 'light');
+  renderProgress();
+  wireDropZone('speciesDrop', 'speciesInput', parseSpecies);
+  wireDropZone('phyDrop', 'phyInput');
+});
+
+function switchTab(el, targetId) {
+  el.closest('.step-panel').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  el.closest('.step-panel').querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+  document.getElementById(targetId).classList.add('active');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('copyToast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function download(filename, text) {
+  const a = document.createElement('a');
+  a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+  a.download = filename;
+  a.click();
+}
+</script>
+</body>
+</html>

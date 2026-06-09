@@ -618,14 +618,11 @@
           </div>
 
           <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
-            <label>Paste downloaded domain tree Newick (.nwk)</label>
+            <label>Upload domain tree file (.nwk)</label>
             <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
-              After opening the link above, download the Newick on the UMAP page and paste it here to send it straight to <strong>Step 3 → Domain tree</strong>.
+              After opening the link above, download the Newick on the UMAP page, then drop the <strong>.nwk</strong> file here — it loads straight into <strong>Step 3 → Domain tree</strong>.
             </p>
-            <textarea id="umapNewickInput" rows="6" placeholder="Paste the domain-tree Newick (.nwk) downloaded from UMAP of Life..."></textarea>
-            <div class="btn-row">
-              <button class="btn btn-primary" onclick="sendDomainNewick()">Send to Step 3 as domain tree →</button>
-            </div>
+            <div class="drop-zone" id="domainNwkDrop">Drop or click to select your <strong>.nwk</strong> domain-tree file</div>
           </div>
         </div>
       </div>
@@ -653,13 +650,11 @@
       </div>
 
       <div class="card">
-        <label>Paste .phy file content (NCBI Phylip output)</label>
-        <div class="drop-zone" id="phyDrop">Drop a <strong>.phy / .nwk / .txt</strong> file here, or paste below</div>
-        <textarea id="phyInput" rows="10" placeholder="Paste the entire content of your .phy file here.&#10;&#10;Phylip format typically starts with the number of taxa and characters on the first line, followed by the tree data. NCBI CommonTree phylip output often contains a Newick string with brackets and species names."></textarea>
-        <div class="btn-row">
-          <button class="btn btn-primary" onclick="convertPhy()">Convert to Newick</button>
-          <button class="btn btn-sm" onclick="document.getElementById('phyInput').value=''">Clear</button>
-        </div>
+        <label>Upload .phy file (NCBI Phylip output)</label>
+        <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
+          Drop the <strong>.phy</strong> file from NCBI CommonTree here — it's converted to clean Newick and loaded straight into <strong>Step 3 → Taxonomy tree</strong>.
+        </p>
+        <div class="drop-zone" id="phyDrop">Drop or click to select your <strong>.phy</strong> file</div>
       </div>
 
       <div class="card" id="phyOutput" style="display:none;">
@@ -667,7 +662,6 @@
         <div class="output-block" id="newickOut" style="color: #7dd3fc;"></div>
         <div class="stat-row" id="newickStats"></div>
         <div class="btn-row">
-          <button class="btn btn-primary" onclick="sendToCompare('newickOut','taxonomy')">Send to Step 3 as taxonomy tree →</button>
           <button class="btn" onclick="copyNewick('newickOut')">Copy Newick</button>
           <button class="btn" onclick="downloadNewick('newickOut','taxonomy')">Download as .nwk</button>
         </div>
@@ -1313,21 +1307,27 @@ function downloadTaxIDs() {
   download('taxids.txt', text);
 }
 
-function convertPhy() {
-  const raw = document.getElementById('phyInput').value.trim();
-  if (!raw) { alert('Paste .phy content first.'); return; }
-
-  let newick = extractNewick(raw);
-  if (!newick) {
-    alert('Could not extract a Newick string. Make sure the file contains parentheses tree notation.');
-    return;
-  }
-
-  newick = cleanNewickStr(newick);
-  document.getElementById('newickOut').textContent = newick;
-  showNewickStats('newickStats', newick);
-  document.getElementById('phyOutput').style.display = 'block';
-  markDone(1);
+// Step 2: read an NCBI .phy file, convert it to clean Newick, and load it
+// straight into the Step 3 taxonomy-tree slot as plaintext.
+function loadPhyFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const raw = (reader.result || '').trim();
+    let newick = extractNewick(raw);
+    if (!newick) {
+      alert('Could not extract a Newick string from ' + file.name + '. Make sure the .phy file contains parentheses tree notation.');
+      return;
+    }
+    newick = cleanNewickStr(newick);
+    document.getElementById('newickOut').textContent = newick;
+    showNewickStats('newickStats', newick);
+    document.getElementById('phyOutput').style.display = 'block';
+    treeStore.taxonomy = newick;
+    document.getElementById('taxonomyTree').value = newick;
+    markDone(1);
+    showToast('Converted ' + file.name + ' → Step 3 taxonomy tree');
+  };
+  reader.readAsText(file);
 }
 
 function extractNewick(text) {
@@ -1431,25 +1431,19 @@ function downloadNewick(sourceId, label) {
   download(`${label}_tree.nwk`, text);
 }
 
-function sendToCompare(sourceId, slot) {
-  const text = document.getElementById(sourceId).textContent;
-  if (!text) { alert('No Newick generated yet.'); return; }
-  treeStore[slot] = text;
-  document.getElementById(slot === 'domain' ? 'domainTree' : 'taxonomyTree').value = text;
-  goStep(2);
-  showToast(`Sent to compare as ${slot} tree!`);
-}
-
-// Step 1 shortcut: paste the UMAP-downloaded Newick and push it straight to the
-// Step 3 domain-tree slot.
-function sendDomainNewick() {
-  const raw = document.getElementById('umapNewickInput').value.trim();
-  if (!raw) { alert('Paste the downloaded domain-tree Newick first.'); return; }
-  const newick = cleanNewickStr(extractNewick(raw) || raw);
-  treeStore.domain = newick;
-  document.getElementById('domainTree').value = newick;
-  goStep(2);
-  showToast('Sent to Step 3 as domain tree!');
+// Step 1: read a UMAP-downloaded .nwk file and load it straight into the
+// Step 3 domain-tree slot as plaintext.
+function loadDomainFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const raw = (reader.result || '').trim();
+    const newick = cleanNewickStr(extractNewick(raw) || raw);
+    if (!newick) { alert('Could not read a Newick string from ' + file.name + '.'); return; }
+    treeStore.domain = newick;
+    document.getElementById('domainTree').value = newick;
+    showToast('Loaded ' + file.name + ' → Step 3 domain tree');
+  };
+  reader.readAsText(file);
 }
 
 function renameLeaves(node, map) {
@@ -1696,12 +1690,37 @@ function readFileInto(file, target, after) {
   reader.readAsText(file);
 }
 
+// Like wireDropZone, but hands the dropped/selected File to a custom handler
+// instead of loading it into a textarea.
+function wireFileDrop(zoneId, handler, accept) {
+  const zone = document.getElementById(zoneId);
+  if (!zone) return;
+  zone.addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = accept || '.nwk,.txt,.tree,.newick';
+    inp.onchange = () => { if (inp.files[0]) handler(inp.files[0]); };
+    inp.click();
+  });
+  ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.add('over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); zone.classList.remove('over');
+  }));
+  zone.addEventListener('drop', e => {
+    const f = e.dataTransfer.files[0];
+    if (f) handler(f);
+  });
+}
+
 /* ─────────────────────────── Init ───────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(localStorage.getItem('phyloTheme') || 'light');
   renderProgress();
   wireDropZone('speciesDrop', 'speciesInput', parseSpecies);
-  wireDropZone('phyDrop', 'phyInput');
+  wireFileDrop('phyDrop', loadPhyFile, '.phy,.nwk,.txt');
+  wireFileDrop('domainNwkDrop', loadDomainFile, '.nwk,.txt,.tree,.newick');
 });
 
 function showToast(msg) {

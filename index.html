@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cyanobacteria Phylo Pipeline</title>
+<title>Bacteria Phylogeny</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -556,7 +556,7 @@
 
 <header>
   <div>
-    <div class="logo">Cyanobacteria Phylo Pipeline</div>
+    <div class="logo">Bacteria Phylogeny</div>
     <div class="sub">UMAP of Life → Domain tree vs. Taxonomy tree</div>
   </div>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
@@ -567,10 +567,9 @@
     <div class="sidebar-label">Steps</div>
     <ul class="step-nav" id="stepNav">
       <li class="active" onclick="goStep(0)"><span class="step-num">1</span>Parse species list</li>
-      <li onclick="goStep(1)"><span class="step-num">2</span>Extract taxIDs</li>
-      <li onclick="goStep(2)"><span class="step-num">3</span>.phy → Newick</li>
-      <li onclick="goStep(3)"><span class="step-num">4</span>Compare trees</li>
-      <li onclick="goStep(4)"><span class="step-num">5</span>Workflow guide</li>
+      <li onclick="goStep(1)"><span class="step-num">2</span>TaxIDs &amp; taxonomy tree</li>
+      <li onclick="goStep(2)"><span class="step-num">3</span>Compare trees</li>
+      <li onclick="goStep(3)"><span class="step-num">4</span>Workflow guide</li>
     </ul>
   </nav>
 
@@ -604,34 +603,39 @@
         </div>
         <div class="btn-row" style="margin-top:12px;">
           <button class="btn" onclick="copyTable()">Copy as TSV</button>
-          <button class="btn btn-primary" onclick="goStep(1)">Next: Extract taxIDs →</button>
+          <button class="btn btn-primary" onclick="goStep(1)">Next: TaxIDs &amp; taxonomy tree →</button>
         </div>
 
         <div class="card" id="umapLinkCard" style="margin-top:16px; display:none;">
           <label>UMAP domain-tree link (build the domain tree)</label>
           <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
-            Opens UMAP of Life's <em>"Make Phylogenetic Tree (based on domain count)"</em> view pre-loaded with these taxIDs. On that page, download the Newick and bring it back into <strong>Step 3 → Clean .nwk (UMAP domain)</strong>.
+            Opens UMAP of Life's <em>"Make Phylogenetic Tree (based on domain count)"</em> view pre-loaded with these taxIDs. On that page, download the Newick and paste it into the box below to send it straight to the domain tree.
           </p>
-          <div class="btn-row" style="margin-top:0; margin-bottom:8px;">
-            <label style="text-transform:none; font-weight:500; margin:0; display:flex; align-items:center; gap:6px; color:var(--text2);">
-              dataset id (dsid)
-              <input id="umapDsid" value="30" oninput="renderUmapLink()" style="width:64px; border:1px solid var(--border); border-radius:var(--radius); padding:4px 8px; font-family:var(--mono); background:var(--bg); color:var(--text);">
-            </label>
-          </div>
           <div class="output-block" id="umapUrl" style="color:#7dd3fc; max-height:120px;"></div>
           <div class="btn-row">
             <button class="btn btn-primary" onclick="openUmap()">Open domain tree on UMAP ↗</button>
             <button class="btn" onclick="copyUmapLink()">Copy link</button>
           </div>
+
+          <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border);">
+            <label>Paste downloaded domain tree Newick (.nwk)</label>
+            <p style="font-size:12px; color:var(--text2); margin-bottom:8px; line-height:1.5;">
+              After opening the link above, download the Newick on the UMAP page and paste it here to send it straight to <strong>Step 3 → Domain tree</strong>.
+            </p>
+            <textarea id="umapNewickInput" rows="6" placeholder="Paste the domain-tree Newick (.nwk) downloaded from UMAP of Life..."></textarea>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="sendDomainNewick()">Send to Step 3 as domain tree →</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- STEP 2: Extract taxIDs -->
+    <!-- STEP 2: TaxIDs & taxonomy tree -->
     <div class="step-panel" id="panel-1">
       <div class="panel-header">
-        <h2>Extract taxIDs for NCBI CommonTree</h2>
-        <p>Outputs taxIDs one per line, ready to paste into <a href="https://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi" target="_blank" style="color:var(--accent)">NCBI CommonTree</a>. Select phylip format, then save as .phy file.</p>
+        <h2>Build the taxonomy tree (NCBI CommonTree)</h2>
+        <p>Extract taxIDs for <a href="https://www.ncbi.nlm.nih.gov/Taxonomy/CommonTree/wwwcmt.cgi" target="_blank" style="color:var(--accent)">NCBI CommonTree</a>, then paste the resulting .phy file back here to convert it to clean Newick and send it straight to the taxonomy tree in Step 3.</p>
       </div>
 
       <div class="notice">
@@ -648,74 +652,34 @@
         </div>
       </div>
 
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="goStep(2)">Next: Convert .phy → Newick →</button>
-      </div>
-    </div>
-
-    <!-- STEP 3: .phy → Newick -->
-    <div class="step-panel" id="panel-2">
-      <div class="panel-header">
-        <h2>Convert .phy format to clean Newick</h2>
-        <p>Paste the content of your .phy file (NCBI Phylip output). This strips Phylip headers, fixes whitespace, and outputs clean Newick format usable in Phylo.io or FigTree.</p>
-      </div>
-
-      <div class="tab-row">
-        <div class="tab active" onclick="switchTab(this, 'phy-tab')">Convert .phy (NCBI taxonomy)</div>
-        <div class="tab" onclick="switchTab(this, 'newick-tab')">Clean .nwk (UMAP domain)</div>
-      </div>
-
-      <div class="tab-content active" id="phy-tab">
-        <div class="card">
-          <label>Paste .phy file content</label>
-          <div class="drop-zone" id="phyDrop">Drop a <strong>.phy / .nwk / .txt</strong> file here, or paste below</div>
-          <textarea id="phyInput" rows="10" placeholder="Paste the entire content of your .phy file here.&#10;&#10;Phylip format typically starts with the number of taxa and characters on the first line, followed by the tree data. NCBI CommonTree phylip output often contains a Newick string with brackets and species names."></textarea>
-          <div class="btn-row">
-            <button class="btn btn-primary" onclick="convertPhy()">Convert to Newick</button>
-            <button class="btn btn-sm" onclick="document.getElementById('phyInput').value=''">Clear</button>
-          </div>
-        </div>
-
-        <div class="card" id="phyOutput" style="display:none;">
-          <label>Clean Newick output</label>
-          <div class="output-block" id="newickOut" style="color: #7dd3fc;"></div>
-          <div class="stat-row" id="newickStats"></div>
-          <div class="btn-row">
-            <button class="btn btn-primary" onclick="copyNewick('newickOut')">Copy Newick</button>
-            <button class="btn" onclick="downloadNewick('newickOut','taxonomy')">Download as .nwk</button>
-            <button class="btn btn-sm" onclick="sendToCompare('newickOut','taxonomy')">Send to compare as taxonomy (NCBI) →</button>
-          </div>
+      <div class="card">
+        <label>Paste .phy file content (NCBI Phylip output)</label>
+        <div class="drop-zone" id="phyDrop">Drop a <strong>.phy / .nwk / .txt</strong> file here, or paste below</div>
+        <textarea id="phyInput" rows="10" placeholder="Paste the entire content of your .phy file here.&#10;&#10;Phylip format typically starts with the number of taxa and characters on the first line, followed by the tree data. NCBI CommonTree phylip output often contains a Newick string with brackets and species names."></textarea>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="convertPhy()">Convert to Newick</button>
+          <button class="btn btn-sm" onclick="document.getElementById('phyInput').value=''">Clear</button>
         </div>
       </div>
 
-      <div class="tab-content" id="newick-tab">
-        <div class="card">
-          <label>Paste Newick (.nwk) to validate/clean</label>
-          <textarea id="newickCleanInput" rows="10" placeholder="Paste any Newick / .nwk string here — e.g. the UMAP domain tree downloaded from 'Make Phylogenetic Tree (based on domain count)'. Strips whitespace, validates bracket balance, normalizes formatting."></textarea>
-          <div class="btn-row">
-            <button class="btn btn-primary" onclick="cleanNewick()">Clean & validate</button>
-          </div>
-        </div>
-        <div class="card" id="cleanOutput" style="display:none;">
-          <label>Cleaned Newick</label>
-          <div class="output-block" id="cleanNewickOut" style="color: #7dd3fc;"></div>
-          <div id="cleanStats" class="stat-row"></div>
-          <div class="btn-row">
-            <button class="btn btn-primary" onclick="copyNewick('cleanNewickOut')">Copy</button>
-            <button class="btn" onclick="downloadNewick('cleanNewickOut','domain')">Download as .nwk</button>
-            <button class="btn btn-sm" onclick="sendToCompare('cleanNewickOut','domain')">Send as domain →</button>
-            <button class="btn btn-sm" onclick="sendToCompare('cleanNewickOut','taxonomy')">Send as taxonomy →</button>
-          </div>
+      <div class="card" id="phyOutput" style="display:none;">
+        <label>Clean Newick output (taxonomy tree)</label>
+        <div class="output-block" id="newickOut" style="color: #7dd3fc;"></div>
+        <div class="stat-row" id="newickStats"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="sendToCompare('newickOut','taxonomy')">Send to Step 3 as taxonomy tree →</button>
+          <button class="btn" onclick="copyNewick('newickOut')">Copy Newick</button>
+          <button class="btn" onclick="downloadNewick('newickOut','taxonomy')">Download as .nwk</button>
         </div>
       </div>
 
       <div class="btn-row" style="margin-top:8px;">
-        <button class="btn btn-primary" onclick="goStep(3)">Next: Compare trees →</button>
+        <button class="btn btn-primary" onclick="goStep(2)">Next: Compare trees →</button>
       </div>
     </div>
 
-    <!-- STEP 4: Compare trees -->
-    <div class="step-panel" id="panel-3">
+    <!-- STEP 3: Compare trees -->
+    <div class="step-panel" id="panel-2">
       <div class="panel-header">
         <h2>Compare domain tree vs. taxonomy tree</h2>
         <p>Paste both Newick strings to compute Robinson-Foulds distance and leaf set overlap. For full visual comparison, use Phylo.io.</p>
@@ -798,8 +762,8 @@
       </div>
     </div>
 
-    <!-- STEP 5: Workflow guide -->
-    <div class="step-panel" id="panel-4">
+    <!-- STEP 4: Workflow guide -->
+    <div class="step-panel" id="panel-3">
       <div class="panel-header">
         <h2>Full workflow guide</h2>
         <p>The complete Pelegrini Lab pipeline from UMAP selection to Phylo.io comparison, with automated steps highlighted.</p>
@@ -809,7 +773,7 @@
         <div class="manual-step">
           <span class="manual-num">1</span>
           <div class="desc">
-            Go to <a href="https://umap.mcdb.ucla.edu/v2/" target="_blank">UMAP of Life v2</a>. The map contains Archaea + Bacteria + Eukaryota organisms (23,656 PFAMs, correlation metric). Use <strong>Select mode</strong> to draw a lasso around the Cyanophyceae cluster in the Bacteria region (orange dots, lower-left dense cluster).
+            Go to <a href="https://umap.mcdb.ucla.edu/v2/" target="_blank">UMAP of Life v2</a>. The map contains Archaea + Bacteria + Eukaryota organisms (23,656 PFAMs, correlation metric). Use <strong>Select mode</strong> to draw a lasso around your clade of interest.
           </div>
         </div>
         <div class="manual-step">
@@ -835,25 +799,25 @@
         <div class="manual-step">
           <span class="manual-num">5</span>
           <div class="desc">
-            <span class="badge">Automated</span> Paste the .phy content into <strong>Step 3</strong> to convert to clean Newick format. This is your <em>taxonomy tree</em>.
+            <span class="badge">Automated</span> Paste the .phy content into <strong>Step 2</strong> to convert to clean Newick format and send it to the taxonomy tree. This is your <em>taxonomy tree</em>.
           </div>
         </div>
         <div class="manual-step">
           <span class="manual-num">6</span>
           <div class="desc">
-            Back on the UMAP site, with your Cyanophyceae still selected, click <strong>Make Phylogenetic Tree (based on domain count)</strong>, then <strong>Download Newick</strong>. This is your <em>domain tree</em>.
+            Back on the UMAP site, with your selection still active, click <strong>Make Phylogenetic Tree (based on domain count)</strong>, then <strong>Download Newick</strong>. This is your <em>domain tree</em>.
           </div>
         </div>
         <div class="manual-step">
           <span class="manual-num">7</span>
           <div class="desc">
-            <span class="badge">Automated</span> Paste both Newick strings into <strong>Step 4</strong> to compute Robinson-Foulds distance, leaf overlap, and discordance statistics.
+            <span class="badge">Automated</span> Paste both Newick strings into <strong>Step 3</strong> to compute Robinson-Foulds distance, leaf overlap, and discordance statistics.
           </div>
         </div>
         <div class="manual-step">
           <span class="manual-num">8</span>
           <div class="desc">
-            For visual side-by-side comparison, go to <a href="https://phylo.io" target="_blank">Phylo.io</a>, upload both Newick files, and enable color-coded topological similarity. RF distance from Step 4 tells you the magnitude of discordance between domain-based and taxonomic groupings.
+            For visual side-by-side comparison, go to <a href="https://phylo.io" target="_blank">Phylo.io</a>, upload both Newick files, and enable color-coded topological similarity. RF distance from Step 3 tells you the magnitude of discordance between domain-based and taxonomic groupings.
           </div>
         </div>
       </div>
@@ -1296,14 +1260,11 @@ function renderSpeciesTable() {
 }
 
 // Builds the UMAP "Make Phylogenetic Tree (domain count)" URL from parsed taxIDs.
-// dsid is the UMAP dataset id (30 for the bacteria/archaea/eukaryota set in the
-// example workflow); editable in case a different dataset is used.
+// dsid 30 is the bacteria/archaea/eukaryota dataset used in the workflow.
 function buildUmapUrl() {
   const ids = parsedSpecies.filter(s => s.taxID).map(s => s.taxID);
   if (!ids.length) return '';
-  const dsidEl = document.getElementById('umapDsid');
-  const dsid = (dsidEl && dsidEl.value.trim()) || '30';
-  return `https://umap.mcdb.ucla.edu/v2/trees/?dsid=${dsid}&genomes=${ids.join(',')}`;
+  return `https://umap.mcdb.ucla.edu/v2/trees/?dsid=30&genomes=${ids.join(',')}`;
 }
 
 function renderUmapLink() {
@@ -1366,19 +1327,7 @@ function convertPhy() {
   document.getElementById('newickOut').textContent = newick;
   showNewickStats('newickStats', newick);
   document.getElementById('phyOutput').style.display = 'block';
-  markDone(2);
-}
-
-function cleanNewick() {
-  const raw = document.getElementById('newickCleanInput').value.trim();
-  if (!raw) { alert('Paste a Newick string first.'); return; }
-  let newick = extractNewick(raw) || raw;
-  newick = cleanNewickStr(newick);
-  const valid = validateNewick(newick);
-  document.getElementById('cleanNewickOut').textContent = newick;
-  showNewickStats('cleanStats', newick, valid);
-  document.getElementById('cleanOutput').style.display = 'block';
-  markDone(2);
+  markDone(1);
 }
 
 function extractNewick(text) {
@@ -1487,8 +1436,20 @@ function sendToCompare(sourceId, slot) {
   if (!text) { alert('No Newick generated yet.'); return; }
   treeStore[slot] = text;
   document.getElementById(slot === 'domain' ? 'domainTree' : 'taxonomyTree').value = text;
-  goStep(3);
+  goStep(2);
   showToast(`Sent to compare as ${slot} tree!`);
+}
+
+// Step 1 shortcut: paste the UMAP-downloaded Newick and push it straight to the
+// Step 3 domain-tree slot.
+function sendDomainNewick() {
+  const raw = document.getElementById('umapNewickInput').value.trim();
+  if (!raw) { alert('Paste the downloaded domain-tree Newick first.'); return; }
+  const newick = cleanNewickStr(extractNewick(raw) || raw);
+  treeStore.domain = newick;
+  document.getElementById('domainTree').value = newick;
+  goStep(2);
+  showToast('Sent to Step 3 as domain tree!');
 }
 
 function renameLeaves(node, map) {
@@ -1569,7 +1530,7 @@ function compareTrees() {
 
   lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct, stats };
   document.getElementById('compareOutput').style.display = 'block';
-  markDone(3);
+  markDone(2);
 }
 
 function statsReportLines(stats) {
@@ -1742,13 +1703,6 @@ document.addEventListener('DOMContentLoaded', () => {
   wireDropZone('speciesDrop', 'speciesInput', parseSpecies);
   wireDropZone('phyDrop', 'phyInput');
 });
-
-function switchTab(el, targetId) {
-  el.closest('.step-panel').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  el.closest('.step-panel').querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-  document.getElementById(targetId).classList.add('active');
-}
 
 function showToast(msg) {
   const t = document.getElementById('copyToast');

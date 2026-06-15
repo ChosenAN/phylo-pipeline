@@ -2498,9 +2498,9 @@ function openAdminPanel() {
   box.querySelector('[data-admin-close]').addEventListener('click', closeAdmin);
   const body = box.querySelector('#adminBody');
   if (!LOG_ENDPOINT) { body.textContent = 'No LOG_ENDPOINT configured — set it in index.html to read logged data.'; return; }
-  fetchAdminData((rows, err) => {
-    if (err || !Array.isArray(rows)) { body.textContent = err || 'Could not load data.'; return; }
-    body.innerHTML = renderAdminRows(rows);
+  fetchAdminData((data, err) => {
+    if (err || !data || typeof data !== 'object' || Array.isArray(data)) { body.textContent = err || 'Could not load data.'; return; }
+    body.innerHTML = renderAdminRows(data);
     body.querySelectorAll('.admin-device-head').forEach(h =>
       h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
   });
@@ -2520,22 +2520,22 @@ function fetchAdminData(cb) {
   document.body.appendChild(s);
 }
 
-function renderAdminRows(rows) {
-  const byDevice = new Map();
-  rows.forEach(r => {
-    const id = r.device_id || '(none)';
-    if (!byDevice.has(id)) byDevice.set(id, []);
-    byDevice.get(id).push(r);
-  });
-  const devices = [...byDevice.entries()].map(([id, evs]) => {
-    evs.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+// byDevice: { "<device_id>": [ {timestamp, session_id, action, species}, ... ] }
+// One row per species, so dedupe by timestamp+session+action for the timeline
+// and collect distinct species separately.
+function renderAdminRows(byDevice) {
+  const devices = Object.keys(byDevice).map(id => {
+    const rows = Array.isArray(byDevice[id]) ? byDevice[id] : [];
     const species = new Set();
-    evs.forEach(e => {
-      let sl = e.species_list;
-      if (typeof sl === 'string') { try { sl = JSON.parse(sl); } catch (_) { sl = sl ? [sl] : null; } }
-      if (Array.isArray(sl)) sl.forEach(s => species.add(s));
+    const seen = new Set();
+    const evs = [];
+    rows.forEach(r => {
+      if (r.species) species.add(String(r.species));
+      const key = (r.timestamp || '') + '|' + (r.session_id || '') + '|' + (r.action || '');
+      if (!seen.has(key)) { seen.add(key); evs.push({ timestamp: r.timestamp, action: r.action }); }
     });
-    return { id, evs, last: evs[evs.length - 1].timestamp || '', species: [...species] };
+    evs.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    return { id, evs, last: evs.length ? (evs[evs.length - 1].timestamp || '') : '', species: [...species] };
   }).sort((a, b) => String(b.last).localeCompare(String(a.last)));
 
   if (!devices.length) return 'No events logged yet.';

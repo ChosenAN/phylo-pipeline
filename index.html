@@ -569,8 +569,12 @@
   .tv-legend .leg { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
   .tv-legend .sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
+  .viewer-row { display: flex; gap: 16px; }
+  .viewer-row > .tree-viewer { flex: 1; min-width: 0; }
+
   @media (max-width: 760px) {
     .compare-grid { grid-template-columns: 1fr; }
+    .viewer-row { flex-direction: column; }
   }
 
   /* Session save indicator + sidebar footer */
@@ -753,9 +757,11 @@
         <a href="https://phylo.io" target="_blank"><button class="btn">Open Phylo.io ↗</button></a>
       </div>
 
-      <!-- Full-width, stacked rendered tree viewers (populated on Compare) -->
-      <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
-      <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
+      <!-- Side-by-side rendered tree viewers (populated on Compare) -->
+      <div class="viewer-row">
+        <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
+        <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
+      </div>
 
       <div id="compareOutput" style="display:none; margin-top:20px;">
         <div class="stat-row" id="compareStats"></div>
@@ -926,8 +932,11 @@ function parseNewick(str) {
       i++;
       while (i < s.length) {
         if (s[i] === "'") {
-          if (s[i + 1] === "'") { label += "'"; i += 2; continue; }
-          i++; break; // closing quote
+          if (s[i + 1] === "'") { label += "'"; i += 2; continue; } // escaped ''
+          // A single apostrophe mid-token (followed by a word char) is a literal
+          // character, e.g. JA-2-3B'a(2-13) — not the closing quote.
+          if (/[A-Za-z0-9]/.test(s[i + 1] || '')) { label += "'"; i++; continue; }
+          i++; break; // closing quote (followed by a delimiter / end)
         }
         label += s[i++];
       }
@@ -1054,7 +1063,7 @@ function normName(s) {
   return s
     .replace(/^\d+\./, '')            // strip leading "12345." taxID prefix
     .toLowerCase()
-    .replace(/\[[^\]]*\]/g, ' ')      // [ID: 123] / bracket tags
+    .replace(/\[([^\]]*)\]/g, ' $1 ') // keep bracketed words, drop only [ ]
     .replace(/=.*$/, ' ')             // "PCC 7942 = FACHB-805" → keep first
     .replace(/\bstrain\b/g, ' ')
     .replace(/[()]/g, ' ')

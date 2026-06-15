@@ -555,6 +555,13 @@
     cursor: grab;
   }
   .tv-canvas.grabbing { cursor: grabbing; }
+  .tv-selbox {
+    position: absolute;
+    pointer-events: none;
+    border: 2px dashed var(--accent);
+    background: rgba(82,183,136,0.10);
+    z-index: 5;
+  }
   .tv-svg { display: block; width: 100%; height: 100%; }
   .tv-svg line { stroke: var(--border2); stroke-width: 1.4; fill: none; }
   .tv-svg text.leaf-label { font-family: var(--mono); font-size: 12px; fill: var(--text); transition: opacity .12s; }
@@ -577,6 +584,15 @@
 
   .color-rank-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; color: var(--text2); }
   .color-rank-bar select { padding: 4px 8px; border: 1px solid var(--border2); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
+
+  .group-legend { margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  .group-legend .gl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .group-legend .gl-title { font-size: 13px; color: var(--text2); font-weight: 600; }
+  .group-legend .gl-btns { display: flex; gap: 6px; }
+  .group-legend .gl-items { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .group-legend .gl-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; user-select: none; }
+  .group-legend .gl-sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .group-legend input[type=checkbox] { cursor: pointer; margin: 0; }
 
   @media (max-width: 760px) {
     .compare-grid { grid-template-columns: 1fr; }
@@ -774,6 +790,7 @@
           <option value="Genus">Genus</option>
         </select>
       </div>
+      <div class="group-legend" id="groupLegendWrap" style="display:none;"></div>
       <div class="viewer-row">
         <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
         <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
@@ -1084,9 +1101,9 @@ function normName(s) {
     .replace(/\[([^\]]*)\]/g, ' $1 ') // keep bracketed words, drop only [ ]
     .replace(/=.*$/, ' ')             // "PCC 7942 = FACHB-805" → keep first
     .replace(/\bstrain\b/g, ' ')
-    .replace(/[()]/g, ' ')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/['()\-]/g, '-')         // apostrophes, parens, dashes → one separator
+    .replace(/[^a-z0-9 \-]/g, ' ')    // any other punctuation → space
+    .replace(/[\s\-]+/g, ' ')         // collapse runs of - and spaces → single space
     .trim();
 }
 
@@ -1258,6 +1275,7 @@ function mountTreeViewer(viewerId, newick, side) {
   function onMove(e) { state.tx = e.clientX - sx; state.ty = e.clientY - sy; apply(); }
   function onUp() { canvas.classList.remove('grabbing'); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
   canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return; // left-drag pans; right-drag box-selects (below)
     sx = e.clientX - state.tx; sy = e.clientY - state.ty;
     canvas.classList.add('grabbing');
     document.addEventListener('mousemove', onMove);
@@ -1283,6 +1301,55 @@ function mountTreeViewer(viewerId, newick, side) {
   });
 
   fit();
+
+  // Right-click drag: draw a dashed box and select every leaf whose rendered
+  // bounding box overlaps it, then highlight matches in BOTH viewers at once.
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  let boxEl = null, bx0 = 0, by0 = 0;
+  function boxMove(e) {
+    const r = canvas.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    boxEl.style.left = Math.min(bx0, cx) + 'px';
+    boxEl.style.top = Math.min(by0, cy) + 'px';
+    boxEl.style.width = Math.abs(cx - bx0) + 'px';
+    boxEl.style.height = Math.abs(cy - by0) + 'px';
+  }
+  function boxUp(e) {
+    document.removeEventListener('mousemove', boxMove);
+    document.removeEventListener('mouseup', boxUp);
+    const r = canvas.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const selX1 = Math.min(bx0, cx), selY1 = Math.min(by0, cy);
+    const selX2 = Math.max(bx0, cx), selY2 = Math.max(by0, cy);
+    if (boxEl) { boxEl.remove(); boxEl = null; }
+    if (selX2 - selX1 < 3 && selY2 - selY1 < 3) return; // treat tiny drag as a click
+    const sel = new Set();
+    host.querySelectorAll('text.leaf-label').forEach(label => {
+      let bb; try { bb = label.getBBox(); } catch (_) { return; }
+      // Map the SVG-local bbox through the live pan/zoom transform to canvas px.
+      const x1 = state.tx + state.scale * bb.x;
+      const y1 = state.ty + state.scale * bb.y;
+      const x2 = x1 + state.scale * bb.width;
+      const y2 = y1 + state.scale * bb.height;
+      if (x1 < selX2 && x2 > selX1 && y1 < selY2 && y2 > selY1) {
+        sel.add(normName(label.getAttribute('data-leaf') || ''));
+      }
+    });
+    highlightLeafSet(sel);
+  }
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 2) return; // right button only
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    bx0 = e.clientX - r.left; by0 = e.clientY - r.top;
+    boxEl = document.createElement('div');
+    boxEl.className = 'tv-selbox';
+    boxEl.style.left = bx0 + 'px'; boxEl.style.top = by0 + 'px';
+    boxEl.style.width = '0px'; boxEl.style.height = '0px';
+    canvas.appendChild(boxEl);
+    document.addEventListener('mousemove', boxMove);
+    document.addEventListener('mouseup', boxUp);
+  });
 }
 
 /* ───────────── Taxonomy-rank coloring of leaf labels ─────────────── */
@@ -1291,20 +1358,32 @@ let orderColorLookup = new Map(); // rank value -> HSL color
 // Map a UI rank label to the parsedSpecies field that holds it.
 const RANK_FIELD = { Phylum: 'phylum', Class: 'class_', Order: 'order', Family: 'family', Genus: 'genus' };
 let currentColorRank = 'Order'; // rank the viewers are currently colored by
+let disabledGroups = new Set(); // rank-group values toggled off in the legend (render grey)
 
-// One distinct color per unique value of the chosen rank, hues spread evenly
-// but starting at 30° to skip the red band (red ~0° is reserved for mismatches).
-function buildOrderColors(rank) {
+// All unique values of the chosen rank, sorted — the full group list for legend & colors.
+function rankGroupValues(rank) {
+  const field = RANK_FIELD[rank || currentColorRank] || 'order';
+  return [...new Set(parsedSpecies.map(s => s[field]).filter(Boolean))].sort();
+}
+
+// Assign colors only to ENABLED groups (hues spread evenly across 30°–330°, so
+// toggling groups off doesn't crowd the remaining ones into near-duplicate hues).
+// Disabled groups map to grey. Red band (~0°) stays reserved for mismatches.
+function buildGroupColors(rank) {
   rank = rank || currentColorRank;
-  const field = RANK_FIELD[rank] || 'order';
-  const vals = [...new Set(parsedSpecies.map(s => s[field]).filter(Boolean))].sort();
+  const vals = rankGroupValues(rank);
   orderColorLookup = new Map();
-  const n = vals.length;
-  vals.forEach((v, i) => {
+  const enabled = vals.filter(v => !disabledGroups.has(v));
+  const n = enabled.length;
+  enabled.forEach((v, i) => {
     const hue = Math.round(30 + 300 * i / Math.max(1, n));
     orderColorLookup.set(v, `hsl(${hue}, 60%, 48%)`);
   });
+  vals.forEach(v => { if (disabledGroups.has(v)) orderColorLookup.set(v, 'var(--text3)'); });
 }
+
+// Back-compat alias: callers still say buildOrderColors; it respects disabledGroups now.
+function buildOrderColors(rank) { buildGroupColors(rank); }
 
 // Best rank value for a leaf via fuzzy match against parsed species (threshold 0.6).
 function leafOrder(leafName, rank) {
@@ -1319,36 +1398,73 @@ function leafOrder(leafName, rank) {
   return best ? best[field] : null;
 }
 
-// Color every leaf label in a viewer by the chosen rank and render the legend.
+// Color every leaf label in a viewer by the chosen rank. Disabled groups (and
+// unmatched leaves) come back grey via orderColorLookup / the var(--text3) fallback.
 function applyTaxonomyColors(viewerId, rank) {
   rank = rank || currentColorRank;
   const host = document.getElementById(viewerId);
   if (!host) return;
-  const used = new Map(); // rank value -> color (only those actually shown)
-  let anyGray = false;
   host.querySelectorAll('text.leaf-label').forEach(t => {
     const order = leafOrder(t.getAttribute('data-leaf'), rank);
     const color = order ? orderColorLookup.get(order) : null;
-    if (color) { t.style.fill = color; used.set(order, color); }
-    else { t.style.fill = 'var(--text3)'; anyGray = true; }
+    t.style.fill = color || 'var(--text3)';
   });
-
+  // The shared #groupLegendWrap panel replaces the per-viewer legend.
   const legend = host.querySelector('.tv-legend');
-  if (!legend) return;
-  const items = [...used.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([o, c]) => `<span class="leg"><span class="sw" style="background:${c}"></span>${escapeHtml(o)}</span>`);
-  if (anyGray) items.push(`<span class="leg"><span class="sw" style="background:var(--text3)"></span>Unmatched</span>`);
-  if (items.length) { legend.innerHTML = items.join(''); legend.style.display = 'flex'; }
-  else { legend.style.display = 'none'; }
+  if (legend) legend.style.display = 'none';
 }
 
-// Shared dropdown handler: recolor both viewers by the newly chosen rank.
+// Recolor both viewers and rebuild the legend to reflect the current disabledGroups.
+function refreshGroupColoring(rank) {
+  rank = rank || currentColorRank;
+  buildGroupColors(rank);
+  applyTaxonomyColors('domainViewer', rank);
+  applyTaxonomyColors('taxonomyViewer', rank);
+  renderGroupLegend(rank);
+}
+
+// Build the checkbox legend: one item per rank-group value, with a coloured (or
+// grey, if disabled) swatch and an enable/disable checkbox, plus All on/off.
+function renderGroupLegend(rank) {
+  rank = rank || currentColorRank;
+  const wrap = document.getElementById('groupLegendWrap');
+  if (!wrap) return;
+  const vals = rankGroupValues(rank);
+  if (!vals.length) { wrap.style.display = 'none'; return; }
+  const items = vals.map(v => {
+    const on = !disabledGroups.has(v);
+    const color = on ? (orderColorLookup.get(v) || 'var(--text3)') : 'var(--text3)';
+    return `<label class="gl-item">
+        <input type="checkbox" data-group="${escapeHtml(v)}" ${on ? 'checked' : ''}>
+        <span class="gl-sw" style="background:${color}"></span>
+        <span class="gl-name">${escapeHtml(v)}</span>
+      </label>`;
+  }).join('');
+  wrap.innerHTML = `
+    <div class="gl-head">
+      <span class="gl-title">${escapeHtml(rank)} groups</span>
+      <span class="gl-btns">
+        <button class="btn btn-sm" data-gl="on">All on</button>
+        <button class="btn btn-sm" data-gl="off">All off</button>
+      </span>
+    </div>
+    <div class="gl-items">${items}</div>`;
+  wrap.style.display = 'block';
+  wrap.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+    const g = cb.getAttribute('data-group');
+    if (cb.checked) disabledGroups.delete(g); else disabledGroups.add(g);
+    refreshGroupColoring(rank);
+  }));
+  wrap.querySelector('[data-gl="on"]').addEventListener('click', () => { disabledGroups.clear(); refreshGroupColoring(rank); });
+  wrap.querySelector('[data-gl="off"]').addEventListener('click', () => { vals.forEach(v => disabledGroups.add(v)); refreshGroupColoring(rank); });
+}
+
+// Shared dropdown handler: switching rank resets the disabled set and rebuilds.
 function setColorRank(rank) {
   if (!RANK_FIELD[rank]) return;
   currentColorRank = rank;
-  buildOrderColors(rank);
-  applyTaxonomyColors('domainViewer', rank);
-  applyTaxonomyColors('taxonomyViewer', rank);
+  disabledGroups = new Set();
+  refreshGroupColoring(rank);
 }
 
 /* ───────────── Cross-tree leaf hover highlight ─────────────── */
@@ -1356,6 +1472,18 @@ function setColorRank(rank) {
 function clearLeafHighlight() {
   document.querySelectorAll('text.leaf-label.hl-dim, text.leaf-label.hl-active')
     .forEach(t => t.classList.remove('hl-dim', 'hl-active'));
+}
+
+// Box-select result: accent every leaf (in either viewer) whose normalized name
+// is in normSet, dim the rest. An empty set just clears all highlighting.
+function highlightLeafSet(normSet) {
+  clearLeafHighlight();
+  if (!normSet || !normSet.size) return;
+  document.querySelectorAll('#domainViewer text.leaf-label, #taxonomyViewer text.leaf-label')
+    .forEach(t => {
+      if (normSet.has(normName(t.getAttribute('data-leaf') || ''))) t.classList.add('hl-active');
+      else t.classList.add('hl-dim');
+    });
 }
 
 // Hovering a leaf dims all labels in both viewers, then accents the hovered
@@ -1792,6 +1920,7 @@ function compareTrees() {
   document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.map(normNwkName).join('\n') : '(none — all domain taxa matched)';
   document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.map(normNwkName).join('\n') : '(none — all taxonomy taxa matched)';
 
+  disabledGroups = new Set(); // fresh comparison ⇒ all groups enabled
   buildOrderColors(currentColorRank);
   mountTreeViewer('domainViewer', d, 'domain');
   mountTreeViewer('taxonomyViewer', t, 'taxonomy');
@@ -1800,6 +1929,7 @@ function compareTrees() {
   if (treeViewers['taxonomyViewer']) treeViewers['taxonomyViewer'].peerViewerId = 'domainViewer';
   applyTaxonomyColors('domainViewer', currentColorRank);
   applyTaxonomyColors('taxonomyViewer', currentColorRank);
+  renderGroupLegend(currentColorRank);
   const rankBar = document.getElementById('colorRankBar');
   if (rankBar) {
     rankBar.style.display = 'flex';

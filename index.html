@@ -690,6 +690,7 @@
     <div class="sub gold-shine">Created by Anthony Nguyen</div>
   </div>
   <span class="save-indicator" id="saveIndicator">Session saved ✓</span>
+  <button class="theme-toggle" id="adminBtn" onclick="openAdminPanel()" title="Admin panel" aria-label="Admin panel" style="display:none;">🛡</button>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
 </header>
 
@@ -2322,8 +2323,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el) el.addEventListener('input', debouncedSave);
   });
   wireAdminTrigger();
-  logEvent('page_load');
+  if (localStorage.getItem('phyloAdmin') === '1') revealAdminBtn();
 });
+
+function revealAdminBtn() {
+  const btn = document.getElementById('adminBtn');
+  if (btn) btn.style.display = '';
+}
 
 function showToast(msg) {
   const t = document.getElementById('copyToast');
@@ -2432,6 +2438,8 @@ function currentSpeciesList() {
 // Apps Script web app can't answer; we don't need to read the logging response.
 function logEvent(action) {
   if (!LOG_ENDPOINT) return;
+  // Only tree comparisons are recorded; all other call sites are no-ops.
+  if (action !== 'tree_compared') return;
   try {
     fetch(LOG_ENDPOINT, {
       method: 'POST',
@@ -2485,12 +2493,17 @@ function openAdminGate() {
   pw.focus();
   box.querySelector('#adminLoginForm').addEventListener('submit', e => {
     e.preventDefault();
-    if (sha256hex(pw.value) === ADMIN_HASH) openAdminPanel();
-    else { box.querySelector('#adminErr').textContent = 'Incorrect passcode.'; pw.value = ''; pw.focus(); }
+    if (sha256hex(pw.value) === ADMIN_HASH) {
+      localStorage.setItem('phyloAdmin', '1');
+      revealAdminBtn();
+      openAdminPanel();
+    } else { box.querySelector('#adminErr').textContent = 'Incorrect passcode.'; pw.value = ''; pw.focus(); }
   });
 }
 
 function openAdminPanel() {
+  const ov = document.getElementById('adminOverlay');
+  if (ov) ov.style.display = 'flex';
   const box = document.getElementById('adminBox');
   box.innerHTML = `
     <div class="admin-head"><strong>Admin · usage log</strong><button class="btn btn-sm" data-admin-close>Close</button></div>
@@ -2543,7 +2556,7 @@ function renderAdminRows(byDevice) {
     <div class="admin-device">
       <div class="admin-device-head">
         <span class="admin-dev-id">${escapeHtml(d.id)}</span>
-        <span class="admin-dev-meta">${d.evs.length} events · last ${escapeHtml(String(d.last))}</span>
+        <span class="admin-dev-meta">${d.evs.length} comparisons · last compared ${escapeHtml(String(d.last))}</span>
       </div>
       <div class="admin-device-body">
         <div class="admin-timeline">

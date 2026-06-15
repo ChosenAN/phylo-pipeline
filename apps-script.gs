@@ -15,7 +15,7 @@
  *         "Who has access: Anyone". Re-deploy a new version after edits.
  */
 
-var HEADERS = ['timestamp', 'session_id', 'action', 'species'];
+var HEADERS = ['device_id', 'timestamp', 'session_id', 'action', 'species'];
 
 // Sheet names can't contain \ / ? * [ ] : and max 100 chars.
 function sheetNameFor(deviceId) {
@@ -37,7 +37,8 @@ function doPost(e) {
   var data = {};
   try { data = JSON.parse(e.postData.contents); } catch (err) {}
 
-  var sheet = getOrCreateSheet(data.device_id);
+  var deviceId = String(data.device_id || 'unknown');
+  var sheet = getOrCreateSheet(deviceId);
   var ts = data.timestamp || new Date().toISOString();
   var sid = data.session_id || '';
   var action = data.action || '';
@@ -49,9 +50,9 @@ function doPost(e) {
   if (!Array.isArray(species)) species = [];
 
   if (species.length === 0) {
-    sheet.appendRow([ts, sid, action, '']);
+    sheet.appendRow([deviceId, ts, sid, action, '']);
   } else {
-    species.forEach(function (sp) { sheet.appendRow([ts, sid, action, sp]); });
+    species.forEach(function (sp) { sheet.appendRow([deviceId, ts, sid, action, sp]); });
   }
 
   return ContentService.createTextOutput('ok');

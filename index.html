@@ -557,7 +557,10 @@
   .tv-canvas.grabbing { cursor: grabbing; }
   .tv-svg { display: block; width: 100%; height: 100%; }
   .tv-svg line { stroke: var(--border2); stroke-width: 1.4; fill: none; }
-  .tv-svg text.leaf-label { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+  .tv-svg text.leaf-label { font-family: var(--mono); font-size: 12px; fill: var(--text); transition: opacity .12s; }
+  /* Cross-tree hover highlight: dim the rest, accent the matched pair. */
+  .tv-svg text.leaf-label.hl-dim { opacity: 0.35; }
+  .tv-svg text.leaf-label.hl-active { font-weight: 700; opacity: 1; fill: var(--accent) !important; }
   .tv-legend {
     display: flex;
     flex-wrap: wrap;
@@ -571,6 +574,9 @@
 
   .viewer-row { display: flex; gap: 16px; }
   .viewer-row > .tree-viewer { flex: 1; min-width: 0; }
+
+  .color-rank-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; color: var(--text2); }
+  .color-rank-bar select { padding: 4px 8px; border: 1px solid var(--border2); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
 
   @media (max-width: 760px) {
     .compare-grid { grid-template-columns: 1fr; }
@@ -758,6 +764,16 @@
       </div>
 
       <!-- Side-by-side rendered tree viewers (populated on Compare) -->
+      <div class="color-rank-bar" id="colorRankBar" style="display:none;">
+        <label for="colorRankSelect">Color leaves by:</label>
+        <select id="colorRankSelect" onchange="setColorRank(this.value)">
+          <option value="Phylum">Phylum</option>
+          <option value="Class">Class</option>
+          <option value="Order" selected>Order</option>
+          <option value="Family">Family</option>
+          <option value="Genus">Genus</option>
+        </select>
+      </div>
       <div class="viewer-row">
         <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
         <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
@@ -928,15 +944,17 @@ function parseNewick(str) {
       if (s[i] === ')') i++;
     }
     let label = '';
-    if (s[i] === "'") { // quoted label; doubled '' is a literal apostrophe
+    if (s[i] === "'") { // quoted label — only a *leading* apostrophe opens a quote
       i++;
       while (i < s.length) {
         if (s[i] === "'") {
           if (s[i + 1] === "'") { label += "'"; i += 2; continue; } // escaped ''
-          // A single apostrophe mid-token (followed by a word char) is a literal
-          // character, e.g. JA-2-3B'a(2-13) — not the closing quote.
-          if (/[A-Za-z0-9]/.test(s[i + 1] || '')) { label += "'"; i++; continue; }
-          i++; break; // closing quote (followed by a delimiter / end)
+          // Close only when the next char is a structural delimiter, whitespace,
+          // or end-of-string. Any other char means this apostrophe is a literal
+          // mid-token character, e.g. JA-2-3B'a(2-13) or 5'-end — not a close.
+          const next = s[i + 1] || '';
+          if (next === '' || stops.includes(next) || /\s/.test(next)) { i++; break; }
+          label += "'"; i++; continue;
         }
         label += s[i++];
       }
@@ -1258,43 +1276,58 @@ function mountTreeViewer(viewerId, newick, side) {
     zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, b.dataset.act === 'in' ? 1.25 : 0.8);
   }));
 
+  // Cross-tree hover: highlight the same leaf in the peer viewer.
+  host.querySelectorAll('text.leaf-label').forEach(label => {
+    label.addEventListener('mouseenter', () => highlightLeafAcross(viewerId, label));
+    label.addEventListener('mouseleave', clearLeafHighlight);
+  });
+
   fit();
 }
 
 /* ───────────── Taxonomy-rank coloring of leaf labels ─────────────── */
-let orderColorLookup = new Map(); // Order name -> HSL color
+let orderColorLookup = new Map(); // rank value -> HSL color
 
-// One distinct color per unique Order, hues spread evenly but starting at
-// 30° to skip the red band (red ~0° is reserved for mismatches elsewhere).
-function buildOrderColors() {
-  const orders = [...new Set(parsedSpecies.map(s => s.order).filter(Boolean))].sort();
+// Map a UI rank label to the parsedSpecies field that holds it.
+const RANK_FIELD = { Phylum: 'phylum', Class: 'class_', Order: 'order', Family: 'family', Genus: 'genus' };
+let currentColorRank = 'Order'; // rank the viewers are currently colored by
+
+// One distinct color per unique value of the chosen rank, hues spread evenly
+// but starting at 30° to skip the red band (red ~0° is reserved for mismatches).
+function buildOrderColors(rank) {
+  rank = rank || currentColorRank;
+  const field = RANK_FIELD[rank] || 'order';
+  const vals = [...new Set(parsedSpecies.map(s => s[field]).filter(Boolean))].sort();
   orderColorLookup = new Map();
-  const n = orders.length;
-  orders.forEach((o, i) => {
+  const n = vals.length;
+  vals.forEach((v, i) => {
     const hue = Math.round(30 + 300 * i / Math.max(1, n));
-    orderColorLookup.set(o, `hsl(${hue}, 60%, 48%)`);
+    orderColorLookup.set(v, `hsl(${hue}, 60%, 48%)`);
   });
 }
 
-// Best Order for a leaf via fuzzy match against parsed species (threshold 0.6).
-function leafOrder(leafName) {
+// Best rank value for a leaf via fuzzy match against parsed species (threshold 0.6).
+function leafOrder(leafName, rank) {
+  rank = rank || currentColorRank;
+  const field = RANK_FIELD[rank] || 'order';
   let best = null, bestScore = 0.6;
   for (const sp of parsedSpecies) {
-    if (!sp.order) continue;
+    if (!sp[field]) continue;
     const s = nameSimilarity(leafName, sp.name);
     if (s >= bestScore) { bestScore = s; best = sp; }
   }
-  return best ? best.order : null;
+  return best ? best[field] : null;
 }
 
-// Color every leaf label in a viewer by its Order and render the legend.
-function applyTaxonomyColors(viewerId) {
+// Color every leaf label in a viewer by the chosen rank and render the legend.
+function applyTaxonomyColors(viewerId, rank) {
+  rank = rank || currentColorRank;
   const host = document.getElementById(viewerId);
   if (!host) return;
-  const used = new Map(); // Order -> color (only those actually shown)
+  const used = new Map(); // rank value -> color (only those actually shown)
   let anyGray = false;
   host.querySelectorAll('text.leaf-label').forEach(t => {
-    const order = leafOrder(t.getAttribute('data-leaf'));
+    const order = leafOrder(t.getAttribute('data-leaf'), rank);
     const color = order ? orderColorLookup.get(order) : null;
     if (color) { t.style.fill = color; used.set(order, color); }
     else { t.style.fill = 'var(--text3)'; anyGray = true; }
@@ -1307,6 +1340,41 @@ function applyTaxonomyColors(viewerId) {
   if (anyGray) items.push(`<span class="leg"><span class="sw" style="background:var(--text3)"></span>Unmatched</span>`);
   if (items.length) { legend.innerHTML = items.join(''); legend.style.display = 'flex'; }
   else { legend.style.display = 'none'; }
+}
+
+// Shared dropdown handler: recolor both viewers by the newly chosen rank.
+function setColorRank(rank) {
+  if (!RANK_FIELD[rank]) return;
+  currentColorRank = rank;
+  buildOrderColors(rank);
+  applyTaxonomyColors('domainViewer', rank);
+  applyTaxonomyColors('taxonomyViewer', rank);
+}
+
+/* ───────────── Cross-tree leaf hover highlight ─────────────── */
+// Restore every leaf label in every viewer to its normal state.
+function clearLeafHighlight() {
+  document.querySelectorAll('text.leaf-label.hl-dim, text.leaf-label.hl-active')
+    .forEach(t => t.classList.remove('hl-dim', 'hl-active'));
+}
+
+// Hovering a leaf dims all labels in both viewers, then accents the hovered
+// label and any label in the peer viewer that normalizes to the same name.
+function highlightLeafAcross(viewerId, label) {
+  const state = treeViewers[viewerId];
+  const target = normName(label.getAttribute('data-leaf') || '');
+  const peer = state && state.peerViewerId ? document.getElementById(state.peerViewerId) : null;
+  [document.getElementById(viewerId), peer].forEach(h => {
+    if (h) h.querySelectorAll('text.leaf-label').forEach(t => t.classList.add('hl-dim'));
+  });
+  label.classList.remove('hl-dim'); label.classList.add('hl-active');
+  if (peer && target) {
+    peer.querySelectorAll('text.leaf-label').forEach(t => {
+      if (normName(t.getAttribute('data-leaf') || '') === target) {
+        t.classList.remove('hl-dim'); t.classList.add('hl-active');
+      }
+    });
+  }
 }
 
 function escapeHtml(s) {
@@ -1387,7 +1455,7 @@ function parseSpecies() {
     const name = nameMatch ? nameMatch[1].trim() : cleaned.split('|')[0].trim();
 
     const pipeIdx = cleaned.indexOf('|');
-    let order = '', family = '', genus = '';
+    let phylum = '', class_ = '', order = '', family = '', genus = '';
     let coords = ['', ''];
 
     if (pipeIdx > -1) {
@@ -1396,7 +1464,10 @@ function parseSpecies() {
       if (pipeIdx2 > -1) {
         const taxPath = rest.slice(0, pipeIdx2).trim();
         const coordStr = rest.slice(pipeIdx2 + 1).trim();
+        // Path: 0=Bacteria 1=Bacillati 2=Phylum 3=Class 4=Order 5=Family 6=Genus
         const parts = taxPath.split('>').map(p => p.trim());
+        phylum = parts[2] || '';
+        class_ = parts[3] || '';
         order = parts[4] || '';
         family = parts[5] || '';
         genus = parts[6] || '';
@@ -1409,7 +1480,7 @@ function parseSpecies() {
     }
 
     if (name || taxID) {
-      parsedSpecies.push({ name, taxID, order, family, genus, x: coords[0], y: coords[1] });
+      parsedSpecies.push({ name, taxID, phylum, class_, order, family, genus, x: coords[0], y: coords[1] });
     }
   }
 
@@ -1721,11 +1792,19 @@ function compareTrees() {
   document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.map(normNwkName).join('\n') : '(none — all domain taxa matched)';
   document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.map(normNwkName).join('\n') : '(none — all taxonomy taxa matched)';
 
-  buildOrderColors();
+  buildOrderColors(currentColorRank);
   mountTreeViewer('domainViewer', d, 'domain');
   mountTreeViewer('taxonomyViewer', t, 'taxonomy');
-  applyTaxonomyColors('domainViewer');
-  applyTaxonomyColors('taxonomyViewer');
+  // Link each viewer to its counterpart for cross-tree hover highlighting.
+  if (treeViewers['domainViewer']) treeViewers['domainViewer'].peerViewerId = 'taxonomyViewer';
+  if (treeViewers['taxonomyViewer']) treeViewers['taxonomyViewer'].peerViewerId = 'domainViewer';
+  applyTaxonomyColors('domainViewer', currentColorRank);
+  applyTaxonomyColors('taxonomyViewer', currentColorRank);
+  const rankBar = document.getElementById('colorRankBar');
+  if (rankBar) {
+    rankBar.style.display = 'flex';
+    document.getElementById('colorRankSelect').value = currentColorRank;
+  }
   // Fit each tree to its now full-width panel so the whole tree shows on load.
   if (treeViewers['domainViewer']) treeViewers['domainViewer'].fit();
   if (treeViewers['taxonomyViewer']) treeViewers['taxonomyViewer'].fit();
@@ -1998,6 +2077,7 @@ function clearSession() {
   document.getElementById('compareOutput').style.display = 'none';
   document.getElementById('domainViewer').style.display = 'none';
   document.getElementById('taxonomyViewer').style.display = 'none';
+  document.getElementById('colorRankBar').style.display = 'none';
   renderProgress();
   showToast('Saved session cleared');
 }

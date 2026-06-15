@@ -1165,6 +1165,16 @@ function nameSimilarity(a, b) {
   const sp = ta[1];
   if (genusMatch && sp && sp === tb[1] && !EPITHET_STOP.has(sp)) return Math.max(0.85, strSim);
 
+  // One name is a more-verbose version of the other: if every distinctive token
+  // of the shorter name (multi-char, not a "sp."/"cf." stop word) also appears in
+  // the longer name and the genus matches, it's the same taxon dressed up with
+  // extra descriptors — e.g. "Synechococcus sp. JA-2-3B'a(2-13)" vs the same plus
+  // "Cyanobacteria bacterium Yellowstone B-Prime". Levenshtein alone is tanked by
+  // that suffix, so handle it via token containment instead.
+  const longSet = new Set(ta.length <= tb.length ? tb : ta);
+  const sig = (ta.length <= tb.length ? ta : tb).filter(tok => tok.length > 1 && !EPITHET_STOP.has(tok));
+  if (genusMatch && sig.length >= 3 && sig.every(tok => longSet.has(tok))) return Math.max(0.85, strSim);
+
   return strSim;
 }
 
@@ -1366,17 +1376,35 @@ function rankGroupValues(rank) {
   return [...new Set(parsedSpecies.map(s => s[field]).filter(Boolean))].sort();
 }
 
-// Assign colors only to ENABLED groups (hues spread evenly across 30°–330°, so
-// toggling groups off doesn't crowd the remaining ones into near-duplicate hues).
-// Disabled groups map to grey. Red band (~0°) stays reserved for mismatches.
+// Largest stride near the golden ratio that is coprime to n, so stepping by it
+// visits every hue slot exactly once (a full cycle, no collisions).
+function coprimeStride(n) {
+  if (n <= 2) return 1;
+  const gcd = (a, b) => b ? gcd(b, a % b) : a;
+  const s = Math.max(1, Math.round(n * 0.618)); // ~golden ratio
+  for (let d = 0; d < n; d++) {
+    if (gcd(s + d, n) === 1) return s + d;
+    if (s - d > 0 && gcd(s - d, n) === 1) return s - d;
+  }
+  return 1;
+}
+
+// Assign colors only to ENABLED groups. Hue slots are still spread evenly across
+// 30°–330° (overall palette stays well-distributed, red band ~0° reserved for
+// mismatches), but groups walk those slots in a golden-ratio stride so each
+// CONSECUTIVE group's hue jumps ~0.6 of the wheel away — adjacent groups in the
+// legend/tree contrast sharply instead of being near-duplicate neighbours.
+// Disabled groups map to grey.
 function buildGroupColors(rank) {
   rank = rank || currentColorRank;
   const vals = rankGroupValues(rank);
   orderColorLookup = new Map();
   const enabled = vals.filter(v => !disabledGroups.has(v));
   const n = enabled.length;
+  const stride = coprimeStride(n);
   enabled.forEach((v, i) => {
-    const hue = Math.round(30 + 300 * i / Math.max(1, n));
+    const slot = (i * stride) % n;
+    const hue = Math.round(30 + 300 * slot / Math.max(1, n));
     orderColorLookup.set(v, `hsl(${hue}, 60%, 48%)`);
   });
   vals.forEach(v => { if (disabledGroups.has(v)) orderColorLookup.set(v, 'var(--text3)'); });

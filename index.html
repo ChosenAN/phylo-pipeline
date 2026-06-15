@@ -153,7 +153,7 @@
   .main {
     flex: 1;
     padding: 32px;
-    max-width: 900px;
+    min-width: 0;
   }
 
   .step-panel { display: none; }
@@ -547,8 +547,8 @@
   .tv-btns { display: flex; gap: 6px; }
   .tv-canvas {
     position: relative;
-    height: 500px;
-    min-height: 500px;
+    height: 700px;
+    min-height: 700px;
     resize: vertical;
     overflow: hidden;
     background: var(--bg);
@@ -741,12 +741,10 @@
             <a href="#" onclick="openUmap(); return false;" style="float:right; font-size:11px; font-weight:500; color:var(--accent); text-transform:none; letter-spacing:0;">↗ build on UMAP</a>
           </h4>
           <textarea id="domainTree" rows="8" placeholder="Paste domain-based Newick from UMAP of Life site..."></textarea>
-          <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
         </div>
         <div class="tree-panel">
           <h4>🌿 Taxonomy tree (NCBI)</h4>
           <textarea id="taxonomyTree" rows="8" placeholder="Paste taxonomy Newick from NCBI CommonTree .phy conversion..."></textarea>
-          <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
         </div>
       </div>
 
@@ -754,6 +752,10 @@
         <button class="btn btn-primary" onclick="compareTrees()">Compare trees</button>
         <a href="https://phylo.io" target="_blank"><button class="btn">Open Phylo.io ↗</button></a>
       </div>
+
+      <!-- Full-width, stacked rendered tree viewers (populated on Compare) -->
+      <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
+      <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
 
       <div id="compareOutput" style="display:none; margin-top:20px;">
         <div class="stat-row" id="compareStats"></div>
@@ -1049,7 +1051,9 @@ function treeStats(root) {
 
 /* ────────────────── Name normalization & matching ───────────────── */
 function normName(s) {
-  return s.toLowerCase()
+  return s
+    .replace(/^\d+\./, '')            // strip leading "12345." taxID prefix
+    .toLowerCase()
     .replace(/\[[^\]]*\]/g, ' ')      // [ID: 123] / bracket tags
     .replace(/=.*$/, ' ')             // "PCC 7942 = FACHB-805" → keep first
     .replace(/\bstrain\b/g, ' ')
@@ -1057,6 +1061,12 @@ function normName(s) {
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Human-readable leaf name for display: drop the "12345." taxID prefix and
+// underscores while keeping original casing/formatting (unlike normName).
+function normNwkName(s) {
+  return String(s).replace(/^\d+\./, '').replace(/_/g, ' ').trim();
 }
 
 function levenshtein(a, b) {
@@ -1634,13 +1644,23 @@ function compareTrees() {
   const dLeaves = getLeaves(d), tLeaves = getLeaves(t);
   const dTaxa = new Set(dLeaves), tTaxa = new Set(tLeaves);
 
-  let shared = [...dTaxa].filter(x => tTaxa.has(x));
-  let dOnly = [...dTaxa].filter(x => !tTaxa.has(x));
-  let tOnly = [...tTaxa].filter(x => !dTaxa.has(x));
+  // Match on normalized names so taxID-prefixed / reformatted leaves resolve
+  // as the same taxon (e.g. "454133.[Limnothrix rosea]..." vs "[Limnothrix...").
+  const dNorm = new Map([...dTaxa].map(x => [normName(x), x]));
+  const tNorm = new Map([...tTaxa].map(x => [normName(x), x]));
+  const sharedNormKeys = [...dNorm.keys()].filter(k => tNorm.has(k));
+  let shared = sharedNormKeys.map(k => dNorm.get(k));  // domain name as canonical
+  let dOnly = [...dTaxa].filter(x => !sharedNormKeys.includes(normName(x)));
+  let tOnly = [...tTaxa].filter(x => !sharedNormKeys.includes(normName(x)));
 
-  // Fuzzy-match the leftovers (strain suffixes, bracket/synonym formatting).
+  // Fuzzy-match only the leftovers (strain suffixes, bracket/synonym formatting).
   const fuzzy = fuzzyMatch(dOnly, tOnly, 0.66);
-  const renameMap = new Map(fuzzy.map(p => [p.b, p.a])); // taxonomy name → domain name
+
+  // Map taxonomy leaf → domain leaf for RF, for BOTH exact normalized and
+  // fuzzy matches, so robinsonFoulds() sees a consistent shared leaf set.
+  const renameMap = new Map();
+  sharedNormKeys.forEach(k => renameMap.set(tNorm.get(k), dNorm.get(k)));
+  fuzzy.forEach(p => renameMap.set(p.b, p.a));
   const effShared = shared.length + fuzzy.length;
 
   const jaccardSim = effShared / (dTaxa.size + tTaxa.size - effShared);
@@ -1686,17 +1706,20 @@ function compareTrees() {
     mapCard.style.display = 'none';
   }
 
-  document.getElementById('sharedTaxa').textContent = shared.length > 0 ? shared.join('\n') : '(none exact)';
+  document.getElementById('sharedTaxa').textContent = shared.length > 0 ? shared.map(normNwkName).join('\n') : '(none exact)';
   const dUnmatched = dOnly.filter(x => !fuzzy.some(p => p.a === x));
   const tUnmatched = tOnly.filter(x => !fuzzy.some(p => p.b === x));
-  document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.join('\n') : '(none — all domain taxa matched)';
-  document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.join('\n') : '(none — all taxonomy taxa matched)';
+  document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.map(normNwkName).join('\n') : '(none — all domain taxa matched)';
+  document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.map(normNwkName).join('\n') : '(none — all taxonomy taxa matched)';
 
   buildOrderColors();
   mountTreeViewer('domainViewer', d, 'domain');
   mountTreeViewer('taxonomyViewer', t, 'taxonomy');
   applyTaxonomyColors('domainViewer');
   applyTaxonomyColors('taxonomyViewer');
+  // Fit each tree to its now full-width panel so the whole tree shows on load.
+  if (treeViewers['domainViewer']) treeViewers['domainViewer'].fit();
+  if (treeViewers['taxonomyViewer']) treeViewers['taxonomyViewer'].fit();
   const stats = renderAnalytics(tDom, tTax);
 
   lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct, stats };

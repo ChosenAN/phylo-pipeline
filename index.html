@@ -489,7 +489,7 @@
 
   /* Theme toggle */
   .theme-toggle {
-    margin-left: auto;
+    margin-left: 12px;
     background: rgba(255,255,255,0.12);
     border: 1px solid rgba(255,255,255,0.22);
     color: #fff;
@@ -526,17 +526,69 @@
   }
   .drop-zone strong { color: var(--accent); }
 
-  /* Tree visualization */
-  .tree-svg {
-    max-height: 300px;
-    overflow: auto;
+  /* Interactive tree viewer */
+  .tree-viewer {
+    margin-top: 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
-    margin-top: 8px;
+    overflow: hidden;
   }
-  .tree-svg line, .tree-svg path { stroke: var(--accent); stroke-width: 1.4; fill: none; }
-  .tree-svg text { font-family: var(--mono); font-size: 11px; fill: var(--text); }
+  .tv-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .tv-title { font-size: 11px; color: var(--text2); font-family: var(--mono); }
+  .tv-btns { display: flex; gap: 6px; }
+  .tv-canvas {
+    position: relative;
+    height: 500px;
+    min-height: 500px;
+    resize: vertical;
+    overflow: hidden;
+    background: var(--bg);
+    cursor: grab;
+  }
+  .tv-canvas.grabbing { cursor: grabbing; }
+  .tv-svg { display: block; width: 100%; height: 100%; }
+  .tv-svg line { stroke: var(--border2); stroke-width: 1.4; fill: none; }
+  .tv-svg text.leaf-label { font-family: var(--mono); font-size: 12px; fill: var(--text); }
+  .tv-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .tv-legend .leg { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+  .tv-legend .sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+  @media (max-width: 760px) {
+    .compare-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Session save indicator + sidebar footer */
+  .save-indicator {
+    margin-left: auto;
+    font-size: 12px;
+    color: #b8ffc8;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  .save-indicator.show { opacity: 1; }
+
+  .sidebar-footer {
+    margin-top: 18px;
+    padding: 14px 16px 0;
+    border-top: 1px solid var(--border);
+  }
 
   /* Name mapping table */
   .map-score {
@@ -559,6 +611,7 @@
     <div class="logo">Bacteria Phylogeny</div>
     <div class="sub">UMAP of Life → Domain tree vs. Taxonomy tree</div>
   </div>
+  <span class="save-indicator" id="saveIndicator">Session saved ✓</span>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
 </header>
 
@@ -571,6 +624,9 @@
       <li onclick="goStep(2)"><span class="step-num">3</span>Compare trees</li>
       <li onclick="goStep(3)"><span class="step-num">4</span>Workflow guide</li>
     </ul>
+    <div class="sidebar-footer">
+      <button class="btn btn-sm" onclick="clearSession()" style="width:100%;">Clear saved session</button>
+    </div>
   </nav>
 
   <main class="main">
@@ -685,12 +741,12 @@
             <a href="#" onclick="openUmap(); return false;" style="float:right; font-size:11px; font-weight:500; color:var(--accent); text-transform:none; letter-spacing:0;">↗ build on UMAP</a>
           </h4>
           <textarea id="domainTree" rows="8" placeholder="Paste domain-based Newick from UMAP of Life site..."></textarea>
-          <div class="tree-svg" id="domainViz" style="display:none;"></div>
+          <div class="tree-viewer" id="domainViewer" style="display:none;"></div>
         </div>
         <div class="tree-panel">
           <h4>🌿 Taxonomy tree (NCBI)</h4>
           <textarea id="taxonomyTree" rows="8" placeholder="Paste taxonomy Newick from NCBI CommonTree .phy conversion..."></textarea>
-          <div class="tree-svg" id="taxonomyViz" style="display:none;"></div>
+          <div class="tree-viewer" id="taxonomyViewer" style="display:none;"></div>
         </div>
       </div>
 
@@ -1075,49 +1131,163 @@ function fuzzyMatch(listA, listB, threshold) {
   return pairs;
 }
 
-/* ────────────────────── Cladogram rendering ─────────────────────── */
-function renderCladogram(newick, containerId) {
-  const container = document.getElementById(containerId);
+/* ──────────────── Interactive tree viewer (pan/zoom) ─────────────── */
+const treeViewers = {}; // viewerId -> live state {scale, tx, ty, apply, fit}
+
+// Render a rectangular cladogram (horizontal, leaves on the right) into a
+// pan/zoom viewer. The SVG stays full-size; a transform on the inner <g>
+// handles all pan/zoom, so the tree never re-rasterizes.
+function mountTreeViewer(viewerId, newick, side) {
+  const host = document.getElementById(viewerId);
+  if (!host) return;
   const root = parseNewick(newick);
-  if (!root) { container.style.display = 'none'; return; }
+  if (!root) { host.style.display = 'none'; return; }
 
   const leafN = [];
   (function collect(n) { n.children.length ? n.children.forEach(collect) : leafN.push(n); })(root);
-  if (leafN.length === 0) { container.style.display = 'none'; return; }
+  if (leafN.length === 0) { host.style.display = 'none'; return; }
 
   let maxDepth = 0;
   (function depth(n, d) { n._d = d; if (d > maxDepth) maxDepth = d; n.children.forEach(c => depth(c, d + 1)); })(root, 0);
 
-  const rowH = 16, padT = 12, padL = 8, labelW = 180;
-  const colW = Math.max(16, Math.min(48, 420 / (maxDepth + 1)));
+  const rowH = 20, padT = 16, padL = 12, colW = 60, labelGap = 6, labelW = 240;
   let li = 0;
   (function setY(n) {
     if (n.children.length === 0) { n._y = padT + li * rowH; li++; }
     else { n.children.forEach(setY); n._y = (n.children[0]._y + n.children[n.children.length - 1]._y) / 2; }
   })(root);
 
-  const height = padT * 2 + leafN.length * rowH;
-  const width = padL + (maxDepth + 1) * colW + labelW;
-  const parts = [`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`];
+  const innerH = padT * 2 + leafN.length * rowH;
+  const innerW = padL + (maxDepth + 1) * colW + labelW;
 
+  const lines = [], labels = [];
   (function draw(n) {
     const x = padL + n._d * colW;
     n.children.forEach(c => {
       const cx = padL + c._d * colW;
-      parts.push(`<line x1="${x}" y1="${c._y}" x2="${cx}" y2="${c._y}"/>`);
+      lines.push(`<line x1="${x}" y1="${c._y}" x2="${cx}" y2="${c._y}"/>`);
       draw(c);
     });
     if (n.children.length) {
       const y1 = n.children[0]._y, y2 = n.children[n.children.length - 1]._y;
-      parts.push(`<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/>`);
+      lines.push(`<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}"/>`);
     } else {
-      parts.push(`<text x="${x + 5}" y="${n._y + 4}">${escapeHtml(n.name)}</text>`);
+      labels.push(`<text class="leaf-label" data-leaf="${escapeHtml(n.name)}" x="${x + labelGap}" y="${n._y + 4}">${escapeHtml(n.name)}</text>`);
     }
   })(root);
 
-  parts.push('</svg>');
-  container.innerHTML = parts.join('');
-  container.style.display = 'block';
+  const title = (side === 'domain' ? '🧬 Domain' : '🌿 Taxonomy') + ` · ${leafN.length} leaves · drag to pan, scroll to zoom`;
+  host.innerHTML = `
+    <div class="tv-toolbar">
+      <span class="tv-title">${title}</span>
+      <span class="tv-btns">
+        <button class="btn btn-sm" data-act="in" title="Zoom in">＋</button>
+        <button class="btn btn-sm" data-act="out" title="Zoom out">－</button>
+        <button class="btn btn-sm" data-act="reset">Reset view</button>
+      </span>
+    </div>
+    <div class="tv-canvas">
+      <svg class="tv-svg"><g class="tv-g">${lines.join('')}${labels.join('')}</g></svg>
+    </div>
+    <div class="tv-legend" style="display:none;"></div>`;
+  host.style.display = 'block';
+
+  const canvas = host.querySelector('.tv-canvas');
+  const g = host.querySelector('.tv-g');
+  const state = { scale: 1, tx: 0, ty: 0 };
+  treeViewers[viewerId] = state;
+
+  function apply() { g.setAttribute('transform', `translate(${state.tx},${state.ty}) scale(${state.scale})`); }
+  function fit() {
+    const cw = canvas.clientWidth || 400, ch = canvas.clientHeight || 500;
+    const s = Math.min(cw / innerW, ch / innerH, 1) * 0.96;
+    state.scale = s > 0 ? s : 1;
+    state.tx = Math.max(8, (cw - innerW * state.scale) / 2);
+    state.ty = 8;
+    apply();
+  }
+  function zoomAt(px, py, factor) {
+    const ns = Math.max(0.1, Math.min(8, state.scale * factor));
+    const k = ns / state.scale;
+    state.tx = px - (px - state.tx) * k;
+    state.ty = py - (py - state.ty) * k;
+    state.scale = ns;
+    apply();
+  }
+  state.apply = apply; state.fit = fit;
+
+  // Pan: attach move/up only while dragging so listeners don't accumulate.
+  let sx = 0, sy = 0;
+  function onMove(e) { state.tx = e.clientX - sx; state.ty = e.clientY - sy; apply(); }
+  function onUp() { canvas.classList.remove('grabbing'); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+  canvas.addEventListener('mousedown', e => {
+    sx = e.clientX - state.tx; sy = e.clientY - state.ty;
+    canvas.classList.add('grabbing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  // Smooth scroll-to-zoom toward the cursor.
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+
+  host.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.act === 'reset') { fit(); return; }
+    zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, b.dataset.act === 'in' ? 1.25 : 0.8);
+  }));
+
+  fit();
+}
+
+/* ───────────── Taxonomy-rank coloring of leaf labels ─────────────── */
+let orderColorLookup = new Map(); // Order name -> HSL color
+
+// One distinct color per unique Order, hues spread evenly but starting at
+// 30° to skip the red band (red ~0° is reserved for mismatches elsewhere).
+function buildOrderColors() {
+  const orders = [...new Set(parsedSpecies.map(s => s.order).filter(Boolean))].sort();
+  orderColorLookup = new Map();
+  const n = orders.length;
+  orders.forEach((o, i) => {
+    const hue = Math.round(30 + 300 * i / Math.max(1, n));
+    orderColorLookup.set(o, `hsl(${hue}, 60%, 48%)`);
+  });
+}
+
+// Best Order for a leaf via fuzzy match against parsed species (threshold 0.6).
+function leafOrder(leafName) {
+  let best = null, bestScore = 0.6;
+  for (const sp of parsedSpecies) {
+    if (!sp.order) continue;
+    const s = nameSimilarity(leafName, sp.name);
+    if (s >= bestScore) { bestScore = s; best = sp; }
+  }
+  return best ? best.order : null;
+}
+
+// Color every leaf label in a viewer by its Order and render the legend.
+function applyTaxonomyColors(viewerId) {
+  const host = document.getElementById(viewerId);
+  if (!host) return;
+  const used = new Map(); // Order -> color (only those actually shown)
+  let anyGray = false;
+  host.querySelectorAll('text.leaf-label').forEach(t => {
+    const order = leafOrder(t.getAttribute('data-leaf'));
+    const color = order ? orderColorLookup.get(order) : null;
+    if (color) { t.style.fill = color; used.set(order, color); }
+    else { t.style.fill = 'var(--text3)'; anyGray = true; }
+  });
+
+  const legend = host.querySelector('.tv-legend');
+  if (!legend) return;
+  const items = [...used.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([o, c]) => `<span class="leg"><span class="sw" style="background:${c}"></span>${escapeHtml(o)}</span>`);
+  if (anyGray) items.push(`<span class="leg"><span class="sw" style="background:var(--text3)"></span>Unmatched</span>`);
+  if (items.length) { legend.innerHTML = items.join(''); legend.style.display = 'flex'; }
+  else { legend.style.display = 'none'; }
 }
 
 function escapeHtml(s) {
@@ -1179,6 +1349,7 @@ function clearSpecies() {
   document.getElementById('speciesInput').value = '';
   document.getElementById('parseOutput').style.display = 'none';
   parsedSpecies = [];
+  saveSession();
 }
 
 function parseSpecies() {
@@ -1231,6 +1402,7 @@ function parseSpecies() {
   renderSpeciesTable();
   updateTaxIDOutput();
   markDone(0);
+  saveSession();
 }
 
 function renderSpeciesTable() {
@@ -1325,6 +1497,7 @@ function loadPhyFile(file) {
     treeStore.taxonomy = newick;
     document.getElementById('taxonomyTree').value = newick;
     markDone(1);
+    saveSession();
     showToast('Converted ' + file.name + ' → Step 3 taxonomy tree');
   };
   reader.readAsText(file);
@@ -1441,6 +1614,7 @@ function loadDomainFile(file) {
     if (!newick) { alert('Could not read a Newick string from ' + file.name + '.'); return; }
     treeStore.domain = newick;
     document.getElementById('domainTree').value = newick;
+    saveSession();
     showToast('Loaded ' + file.name + ' → Step 3 domain tree');
   };
   reader.readAsText(file);
@@ -1518,8 +1692,11 @@ function compareTrees() {
   document.getElementById('domainOnly').textContent = dUnmatched.length > 0 ? dUnmatched.join('\n') : '(none — all domain taxa matched)';
   document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.join('\n') : '(none — all taxonomy taxa matched)';
 
-  renderCladogram(d, 'domainViz');
-  renderCladogram(t, 'taxonomyViz');
+  buildOrderColors();
+  mountTreeViewer('domainViewer', d, 'domain');
+  mountTreeViewer('taxonomyViewer', t, 'taxonomy');
+  applyTaxonomyColors('domainViewer');
+  applyTaxonomyColors('taxonomyViewer');
   const stats = renderAnalytics(tDom, tTax);
 
   lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct, stats };
@@ -1627,11 +1804,14 @@ function downloadAll() {
 }
 
 /* ───────────────────── Navigation & progress ────────────────────── */
-let completedSteps = new Set(JSON.parse(sessionStorage.getItem('phyloProgress') || '[]'));
+// Progress now lives in localStorage; fall back to any legacy sessionStorage
+// value so existing in-progress sessions migrate seamlessly on first load.
+let completedSteps = new Set(JSON.parse(
+  localStorage.getItem('phyloProgress') || sessionStorage.getItem('phyloProgress') || '[]'));
 
 function markDone(n) {
   completedSteps.add(n);
-  sessionStorage.setItem('phyloProgress', JSON.stringify([...completedSteps]));
+  localStorage.setItem('phyloProgress', JSON.stringify([...completedSteps]));
   renderProgress();
 }
 
@@ -1714,13 +1894,94 @@ function wireFileDrop(zoneId, handler, accept) {
   });
 }
 
+/* ──────────────────── Session persistence ───────────────────────── */
+const LS = {
+  species: 'phyloSpeciesInput',
+  domain: 'phyloDomainTree',
+  taxonomy: 'phyloTaxonomyTree',
+  parsed: 'phyloParsedSpecies',
+  progress: 'phyloProgress'
+};
+
+let savedFlashTimer = null;
+function flashSaved() {
+  const el = document.getElementById('saveIndicator');
+  if (!el) return;
+  el.classList.add('show');
+  clearTimeout(savedFlashTimer);
+  savedFlashTimer = setTimeout(() => el.classList.remove('show'), 1200);
+}
+
+// Persist all user inputs + parsed data in one shot, then flash the indicator.
+function saveSession() {
+  try {
+    localStorage.setItem(LS.species, document.getElementById('speciesInput').value);
+    localStorage.setItem(LS.domain, document.getElementById('domainTree').value);
+    localStorage.setItem(LS.taxonomy, document.getElementById('taxonomyTree').value);
+    localStorage.setItem(LS.parsed, JSON.stringify(parsedSpecies));
+  } catch (e) { return; } // quota / disabled storage — fail silently
+  flashSaved();
+}
+
+const debouncedSave = (() => {
+  let t;
+  return () => { clearTimeout(t); t = setTimeout(saveSession, 400); };
+})();
+
+// Restore saved values; repopulate the species table from saved parsed data.
+function restoreSession() {
+  const setVal = (id, key) => {
+    const v = localStorage.getItem(key);
+    if (v != null) document.getElementById(id).value = v;
+  };
+  setVal('speciesInput', LS.species);
+  setVal('domainTree', LS.domain);
+  setVal('taxonomyTree', LS.taxonomy);
+  treeStore.domain = document.getElementById('domainTree').value;
+  treeStore.taxonomy = document.getElementById('taxonomyTree').value;
+
+  const ps = localStorage.getItem(LS.parsed);
+  if (ps) {
+    try {
+      const arr = JSON.parse(ps);
+      if (Array.isArray(arr) && arr.length) {
+        parsedSpecies = arr;
+        renderSpeciesTable();
+        updateTaxIDOutput();
+      }
+    } catch (e) { /* ignore corrupt JSON */ }
+  }
+}
+
+function clearSession() {
+  if (!confirm('Clear all saved session data (species list, both trees, parsed data, and progress)?')) return;
+  Object.values(LS).forEach(k => localStorage.removeItem(k));
+  document.getElementById('speciesInput').value = '';
+  document.getElementById('domainTree').value = '';
+  document.getElementById('taxonomyTree').value = '';
+  parsedSpecies = [];
+  treeStore = { domain: '', taxonomy: '' };
+  completedSteps = new Set();
+  document.getElementById('parseOutput').style.display = 'none';
+  document.getElementById('compareOutput').style.display = 'none';
+  document.getElementById('domainViewer').style.display = 'none';
+  document.getElementById('taxonomyViewer').style.display = 'none';
+  renderProgress();
+  showToast('Saved session cleared');
+}
+
 /* ─────────────────────────── Init ───────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(localStorage.getItem('phyloTheme') || 'light');
+  restoreSession();
   renderProgress();
   wireDropZone('speciesDrop', 'speciesInput', parseSpecies);
   wireFileDrop('phyDrop', loadPhyFile, '.phy,.nwk,.txt');
   wireFileDrop('domainNwkDrop', loadDomainFile, '.nwk,.txt,.tree,.newick');
+  ['speciesInput', 'domainTree', 'taxonomyTree'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', debouncedSave);
+  });
 });
 
 function showToast(msg) {

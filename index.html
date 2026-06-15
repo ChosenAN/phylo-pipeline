@@ -41,7 +41,7 @@
     --accent: #52b788;
     --accent-light: #1b3a2c;
     --accent2: #74c69d;
-    --header-bg: #10201a;
+    --header-bg: #161e2b;
     --warn: #fbbf24;
     --warn-bg: #3a2e10;
   }
@@ -94,6 +94,16 @@
   }
   @keyframes goldShine {
     to { background-position: 250% center; }
+  }
+
+  /* Dark mode: swap the gold for cool shiny silver with a soft glow, pairing
+     with the deeper gunmetal banner. background-image (not the background
+     shorthand) keeps the inherited clip/size/animation sweep intact. */
+  [data-theme="dark"] .gold-shine {
+    background-image: linear-gradient(100deg,
+      #6b7178 0%, #aeb4ba 18%, #e9edf2 34%, #ffffff 48%,
+      #e9edf2 62%, #aeb4ba 80%, #6b7178 100%);
+    text-shadow: 0 0 10px rgba(205, 218, 232, 0.55);
   }
 
   .pipeline {

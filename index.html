@@ -2323,7 +2323,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el) el.addEventListener('input', debouncedSave);
   });
   wireAdminTrigger();
-  if (localStorage.getItem('phyloAdmin') === '1') revealAdminBtn();
+  if (sessionStorage.getItem('phyloAdmin') === '1') revealAdminBtn();
 });
 
 function revealAdminBtn() {
@@ -2494,7 +2494,7 @@ function openAdminGate() {
   box.querySelector('#adminLoginForm').addEventListener('submit', e => {
     e.preventDefault();
     if (sha256hex(pw.value) === ADMIN_HASH) {
-      localStorage.setItem('phyloAdmin', '1');
+      sessionStorage.setItem('phyloAdmin', '1');
       revealAdminBtn();
       openAdminPanel();
     } else { box.querySelector('#adminErr').textContent = 'Incorrect passcode.'; pw.value = ''; pw.focus(); }
@@ -2512,8 +2512,18 @@ function openAdminPanel() {
   const body = box.querySelector('#adminBody');
   if (!LOG_ENDPOINT) { body.textContent = 'No LOG_ENDPOINT configured — set it in index.html to read logged data.'; return; }
   fetchAdminData((data, err) => {
-    if (err || !data || typeof data !== 'object' || Array.isArray(data)) { body.textContent = err || 'Could not load data.'; return; }
-    body.innerHTML = renderAdminRows(data);
+    if (err || !data || typeof data !== 'object') { body.textContent = err || 'Could not load data.'; return; }
+    // New endpoint returns {device_id: [rows]}; older one returned a flat
+    // array. Group the array by device_id so both shapes render.
+    let byDevice = data;
+    if (Array.isArray(data)) {
+      byDevice = {};
+      data.forEach(r => {
+        const id = r.device_id || '(none)';
+        (byDevice[id] = byDevice[id] || []).push(r);
+      });
+    }
+    body.innerHTML = renderAdminRows(byDevice);
     body.querySelectorAll('.admin-device-head').forEach(h =>
       h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
   });
@@ -2544,6 +2554,9 @@ function renderAdminRows(byDevice) {
     const evs = [];
     rows.forEach(r => {
       if (r.species) species.add(String(r.species));
+      let sl = r.species_list;                      // older flat-array rows
+      if (typeof sl === 'string') { try { sl = JSON.parse(sl); } catch (_) { sl = sl ? [sl] : null; } }
+      if (Array.isArray(sl)) sl.forEach(s => species.add(String(s)));
       const key = (r.timestamp || '') + '|' + (r.session_id || '') + '|' + (r.action || '');
       if (!seen.has(key)) { seen.add(key); evs.push({ timestamp: r.timestamp, action: r.action }); }
     });

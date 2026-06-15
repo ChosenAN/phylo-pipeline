@@ -624,6 +624,27 @@
   .group-legend .gl-sw { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
   .group-legend input[type=checkbox] { cursor: pointer; margin: 0; }
 
+  /* Hidden admin panel */
+  .admin-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); }
+  .admin-box { width: min(880px, 94vw); max-height: 88vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius-lg); overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,0.4); }
+  .admin-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface2); font-size: 14px; }
+  .admin-body { padding: 14px 16px; overflow-y: auto; font-size: 13px; }
+  .admin-login { display: flex; flex-direction: column; gap: 10px; padding: 22px; }
+  .admin-login input { padding: 9px 11px; border: 1px solid var(--border2); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 14px; }
+  .admin-login .err { color: #d9534f; font-size: 12px; min-height: 14px; }
+  .admin-device { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .admin-device-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; cursor: pointer; background: var(--surface2); }
+  .admin-device-head:hover { background: var(--accent-light); }
+  .admin-dev-id { font-family: var(--mono); font-size: 12px; }
+  .admin-dev-meta { font-size: 11px; color: var(--text2); }
+  .admin-device-body { display: none; padding: 10px 12px; border-top: 1px solid var(--border); }
+  .admin-device.open .admin-device-body { display: block; }
+  .admin-timeline { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+  .admin-ev { display: flex; gap: 12px; font-size: 12px; }
+  .admin-ev-t { color: var(--text2); font-family: var(--mono); white-space: nowrap; }
+  .admin-ev-a { color: var(--accent2); font-weight: 600; }
+  .admin-species { font-size: 12px; color: var(--text2); line-height: 1.5; word-break: break-word; }
+
   @media (max-width: 760px) {
     .compare-grid { grid-template-columns: 1fr; }
     .viewer-row { flex-direction: column; }
@@ -671,6 +692,10 @@
   <span class="save-indicator" id="saveIndicator">Session saved ✓</span>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
 </header>
+
+<div id="adminOverlay" class="admin-overlay" style="display:none;">
+  <div class="admin-box" id="adminBox"></div>
+</div>
 
 <div class="pipeline">
   <nav class="sidebar">
@@ -1377,6 +1402,7 @@ function mountTreeViewer(viewerId, newick, side) {
       }
     });
     highlightLeafSet(sel);
+    logEvent('box_select');
   }
   canvas.addEventListener('mousedown', e => {
     if (e.button !== 2) return; // right button only
@@ -1524,6 +1550,7 @@ function setColorRank(rank) {
   currentColorRank = rank;
   disabledGroups = new Set();
   refreshGroupColoring(rank);
+  logEvent('rank_color_toggled');
 }
 
 /* ───────────── Cross-tree leaf hover highlight ─────────────── */
@@ -1687,6 +1714,7 @@ function parseSpecies() {
   updateTaxIDOutput();
   markDone(0);
   saveSession();
+  logEvent('taxids_entered');
 }
 
 function renderSpeciesTable() {
@@ -1782,6 +1810,7 @@ function loadPhyFile(file) {
     document.getElementById('taxonomyTree').value = newick;
     markDone(1);
     saveSession();
+    logEvent('phy_uploaded');
     showToast('Converted ' + file.name + ' → Step 3 taxonomy tree');
   };
   reader.readAsText(file);
@@ -2010,6 +2039,7 @@ function compareTrees() {
   lastCompare = { d, t, shared, fuzzy, dUnmatched, tUnmatched, rf, effShared, overlapPct, stats };
   document.getElementById('compareOutput').style.display = 'block';
   markDone(2);
+  logEvent('tree_compared');
 }
 
 function statsReportLines(stats) {
@@ -2291,6 +2321,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', debouncedSave);
   });
+  wireAdminTrigger();
+  logEvent('page_load');
 });
 
 function showToast(msg) {
@@ -2310,6 +2342,216 @@ function download(filename, text) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ───────────────── Hidden admin panel + usage logging ───────────────── */
+// Paste your deployed Google Apps Script web-app URL here (the .../exec URL).
+// Logging and the admin read both no-op until this is set.
+const LOG_ENDPOINT = '';
+// SHA-256 (hex) of the admin passcode. Current value = sha256("AnthonyN476").
+const ADMIN_HASH = '916a5ab1022b8a44867be13884bed9221fb952634239bfe72868f93bfbd1294c';
+
+// Self-contained SHA-256 → lowercase hex. Inlined (no Web Crypto) so the gate
+// also works when the page is opened from file://, where crypto.subtle may be
+// unavailable. UTF-8 encodes the input first.
+function sha256hex(str) {
+  function rotr(n, x) { return (x >>> n) | (x << (32 - n)); }
+  const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let c = str.charCodeAt(i);
+    if (c < 0x80) bytes.push(c);
+    else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    else if (c < 0xd800 || c >= 0xe000) bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    else { i++; c = 0x10000 + (((c & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+      bytes.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f)); }
+  }
+  const bitLen = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  bytes.push(0, 0, 0, 0, (bitLen >>> 24) & 0xff, (bitLen >>> 16) & 0xff, (bitLen >>> 8) & 0xff, bitLen & 0xff);
+  const w = new Array(64);
+  for (let off = 0; off < bytes.length; off += 64) {
+    for (let i = 0; i < 16; i++)
+      w[i] = (bytes[off+i*4] << 24) | (bytes[off+i*4+1] << 16) | (bytes[off+i*4+2] << 8) | bytes[off+i*4+3];
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(7, w[i-15]) ^ rotr(18, w[i-15]) ^ (w[i-15] >>> 3);
+      const s1 = rotr(17, w[i-2]) ^ rotr(19, w[i-2]) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(6, e) ^ rotr(11, e) ^ rotr(25, e);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (h + S1 + ch + K[i] + w[i]) | 0;
+      const S0 = rotr(2, a) ^ rotr(13, a) ^ rotr(22, a);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    H = [(H[0]+a)|0,(H[1]+b)|0,(H[2]+c)|0,(H[3]+d)|0,(H[4]+e)|0,(H[5]+f)|0,(H[6]+g)|0,(H[7]+h)|0];
+  }
+  return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+}
+
+function uuid() {
+  if (window.crypto && crypto.randomUUID) { try { return crypto.randomUUID(); } catch (_) {} }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, ch => {
+    const r = Math.random() * 16 | 0; return (ch === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+// Stable per-browser id (persisted) + a fresh id per page visit.
+const DEVICE_ID = (() => {
+  let id = localStorage.getItem('phyloDeviceId');
+  if (!id) { id = uuid(); localStorage.setItem('phyloDeviceId', id); }
+  return id;
+})();
+const SESSION_ID = uuid();
+
+// Leaf labels of whatever tree(s) are loaded, deduped across both; null if none.
+function currentSpeciesList() {
+  const set = new Set();
+  ['domainTree', 'taxonomyTree'].forEach(id => {
+    const el = document.getElementById(id);
+    const v = el && el.value ? el.value.trim() : '';
+    if (v) { try { getLeaves(v).forEach(x => set.add(x)); } catch (_) {} }
+  });
+  return set.size ? [...set] : null;
+}
+
+// Fire-and-forget POST. no-cors + text/plain avoids the CORS preflight that an
+// Apps Script web app can't answer; we don't need to read the logging response.
+function logEvent(action) {
+  if (!LOG_ENDPOINT) return;
+  try {
+    fetch(LOG_ENDPOINT, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        device_id: DEVICE_ID,
+        session_id: SESSION_ID,
+        timestamp: new Date().toISOString(),
+        action,
+        species_list: currentSpeciesList(),
+      }),
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+// 5 fast clicks on the title opens the passcode gate.
+function wireAdminTrigger() {
+  const logo = document.querySelector('header .logo');
+  if (!logo) return;
+  let clicks = 0, timer = null;
+  logo.addEventListener('click', () => {
+    clicks++;
+    clearTimeout(timer);
+    timer = setTimeout(() => { clicks = 0; }, 800);
+    if (clicks >= 5) { clicks = 0; openAdminGate(); }
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAdmin(); });
+}
+
+function closeAdmin() {
+  const ov = document.getElementById('adminOverlay');
+  if (ov) ov.style.display = 'none';
+}
+
+function openAdminGate() {
+  const ov = document.getElementById('adminOverlay');
+  const box = document.getElementById('adminBox');
+  if (!ov || !box) return;
+  ov.style.display = 'flex';
+  box.innerHTML = `
+    <div class="admin-head"><strong>Admin access</strong><button class="btn btn-sm" data-admin-close>✕</button></div>
+    <form class="admin-login" id="adminLoginForm" autocomplete="off">
+      <label style="font-size:13px;color:var(--text2);">Enter passcode</label>
+      <input type="password" id="adminPw" autocomplete="new-password" />
+      <div class="err" id="adminErr"></div>
+      <button type="submit" class="btn btn-primary">Unlock</button>
+    </form>`;
+  box.querySelector('[data-admin-close]').addEventListener('click', closeAdmin);
+  const pw = box.querySelector('#adminPw');
+  pw.focus();
+  box.querySelector('#adminLoginForm').addEventListener('submit', e => {
+    e.preventDefault();
+    if (sha256hex(pw.value) === ADMIN_HASH) openAdminPanel();
+    else { box.querySelector('#adminErr').textContent = 'Incorrect passcode.'; pw.value = ''; pw.focus(); }
+  });
+}
+
+function openAdminPanel() {
+  const box = document.getElementById('adminBox');
+  box.innerHTML = `
+    <div class="admin-head"><strong>Admin · usage log</strong><button class="btn btn-sm" data-admin-close>Close</button></div>
+    <div class="admin-body" id="adminBody">Loading…</div>`;
+  box.querySelector('[data-admin-close]').addEventListener('click', closeAdmin);
+  const body = box.querySelector('#adminBody');
+  if (!LOG_ENDPOINT) { body.textContent = 'No LOG_ENDPOINT configured — set it in index.html to read logged data.'; return; }
+  fetchAdminData((rows, err) => {
+    if (err || !Array.isArray(rows)) { body.textContent = err || 'Could not load data.'; return; }
+    body.innerHTML = renderAdminRows(rows);
+    body.querySelectorAll('.admin-device-head').forEach(h =>
+      h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
+  });
+}
+
+// Read all rows via JSONP (a cross-origin GET that bypasses CORS, which an Apps
+// Script web app otherwise can't satisfy for fetch reads).
+function fetchAdminData(cb) {
+  const fn = '__adminCb_' + Date.now();
+  const s = document.createElement('script');
+  let done = false;
+  const cleanup = () => { try { delete window[fn]; } catch (_) { window[fn] = undefined; } s.remove(); };
+  window[fn] = data => { if (done) return; done = true; cleanup(); cb(data); };
+  s.onerror = () => { if (done) return; done = true; cleanup(); cb(null, 'Network error fetching log.'); };
+  setTimeout(() => { if (!done) { done = true; cleanup(); cb(null, 'Request timed out.'); } }, 15000);
+  s.src = LOG_ENDPOINT + (LOG_ENDPOINT.includes('?') ? '&' : '?') + 'admin=1&callback=' + fn;
+  document.body.appendChild(s);
+}
+
+function renderAdminRows(rows) {
+  const byDevice = new Map();
+  rows.forEach(r => {
+    const id = r.device_id || '(none)';
+    if (!byDevice.has(id)) byDevice.set(id, []);
+    byDevice.get(id).push(r);
+  });
+  const devices = [...byDevice.entries()].map(([id, evs]) => {
+    evs.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    const species = new Set();
+    evs.forEach(e => {
+      let sl = e.species_list;
+      if (typeof sl === 'string') { try { sl = JSON.parse(sl); } catch (_) { sl = sl ? [sl] : null; } }
+      if (Array.isArray(sl)) sl.forEach(s => species.add(s));
+    });
+    return { id, evs, last: evs[evs.length - 1].timestamp || '', species: [...species] };
+  }).sort((a, b) => String(b.last).localeCompare(String(a.last)));
+
+  if (!devices.length) return 'No events logged yet.';
+  return devices.map(d => `
+    <div class="admin-device">
+      <div class="admin-device-head">
+        <span class="admin-dev-id">${escapeHtml(d.id)}</span>
+        <span class="admin-dev-meta">${d.evs.length} events · last ${escapeHtml(String(d.last))}</span>
+      </div>
+      <div class="admin-device-body">
+        <div class="admin-timeline">
+          ${d.evs.map(e => `<div class="admin-ev"><span class="admin-ev-t">${escapeHtml(String(e.timestamp || ''))}</span><span class="admin-ev-a">${escapeHtml(String(e.action || ''))}</span></div>`).join('')}
+        </div>
+        <div class="admin-species"><strong>Species analyzed (${d.species.length}):</strong> ${d.species.length ? escapeHtml(d.species.join(', ')) : '—'}</div>
+      </div>
+    </div>`).join('');
 }
 </script>
 </body>

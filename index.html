@@ -1297,7 +1297,7 @@ function mountTreeViewer(viewerId, newick, side) {
   // Cross-tree hover: highlight the same leaf in the peer viewer.
   host.querySelectorAll('text.leaf-label').forEach(label => {
     label.addEventListener('mouseenter', () => highlightLeafAcross(viewerId, label));
-    label.addEventListener('mouseleave', clearLeafHighlight);
+    label.addEventListener('mouseleave', () => { if (!boxSelectActive) clearLeafHighlight(); });
   });
 
   fit();
@@ -1468,6 +1468,11 @@ function setColorRank(rank) {
 }
 
 /* ───────────── Cross-tree leaf hover highlight ─────────────── */
+// While a box selection is active, single-leaf hover is locked out entirely so
+// it can't flicker/cancel the selection (incl. during a left-drag pan). The box
+// is only dismissed by drawing a new right-box that lands on no leaves.
+let boxSelectActive = false;
+
 // Restore every leaf label in every viewer to its normal state.
 function clearLeafHighlight() {
   document.querySelectorAll('text.leaf-label.hl-dim, text.leaf-label.hl-active')
@@ -1475,10 +1480,11 @@ function clearLeafHighlight() {
 }
 
 // Box-select result: accent every leaf (in either viewer) whose normalized name
-// is in normSet, dim the rest. An empty set just clears all highlighting.
+// is in normSet, dim the rest. An empty set clears all highlighting and unlocks hover.
 function highlightLeafSet(normSet) {
   clearLeafHighlight();
-  if (!normSet || !normSet.size) return;
+  boxSelectActive = !!(normSet && normSet.size);
+  if (!boxSelectActive) return;
   document.querySelectorAll('#domainViewer text.leaf-label, #taxonomyViewer text.leaf-label')
     .forEach(t => {
       if (normSet.has(normName(t.getAttribute('data-leaf') || ''))) t.classList.add('hl-active');
@@ -1489,6 +1495,7 @@ function highlightLeafSet(normSet) {
 // Hovering a leaf dims all labels in both viewers, then accents the hovered
 // label and any label in the peer viewer that normalizes to the same name.
 function highlightLeafAcross(viewerId, label) {
+  if (boxSelectActive) return; // box selection locks out hover highlighting
   const state = treeViewers[viewerId];
   const target = normName(label.getAttribute('data-leaf') || '');
   const peer = state && state.peerViewerId ? document.getElementById(state.peerViewerId) : null;
@@ -1921,6 +1928,7 @@ function compareTrees() {
   document.getElementById('taxOnly').textContent = tUnmatched.length > 0 ? tUnmatched.map(normNwkName).join('\n') : '(none — all taxonomy taxa matched)';
 
   disabledGroups = new Set(); // fresh comparison ⇒ all groups enabled
+  boxSelectActive = false;     // clear any box-selection lock from a prior run
   buildOrderColors(currentColorRank);
   mountTreeViewer('domainViewer', d, 'domain');
   mountTreeViewer('taxonomyViewer', t, 'taxonomy');

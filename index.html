@@ -76,6 +76,26 @@
     margin-top: 2px;
   }
 
+  /* Shiny, reflective metallic gold text with a slow moving highlight sweep. */
+  .gold-shine {
+    opacity: 1;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    background: linear-gradient(100deg,
+      #7a5c12 0%, #b8860b 18%, #f5d76e 34%, #fffbe6 48%,
+      #f5d76e 62%, #b8860b 80%, #7a5c12 100%);
+    background-size: 250% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+    animation: goldShine 4s linear infinite;
+  }
+  @keyframes goldShine {
+    to { background-position: 250% center; }
+  }
+
   .pipeline {
     display: flex;
     gap: 0;
@@ -636,7 +656,7 @@
   <div>
     <div class="logo">Bacteria Phylogeny</div>
     <div class="sub">UMAP of Life → Domain tree vs. Taxonomy tree</div>
-    <div class="sub" style="color:#d4af37; font-weight:600;">Created by Anthony Nguyen</div>
+    <div class="sub gold-shine">Created by Anthony Nguyen</div>
   </div>
   <span class="save-indicator" id="saveIndicator">Session saved ✓</span>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
